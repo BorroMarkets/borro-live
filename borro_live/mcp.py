@@ -11,7 +11,11 @@ MCP_URL = "https://borro.markets/mcp"
 PROTOCOL = "2025-03-26"
 
 
-class McpError(Exception):
+class BorroLiveError(Exception):
+    """Every error this kit raises: an order it refuses before anything is signed, or an answer Borro gave in words."""
+
+
+class McpError(BorroLiveError):
     """The server could not be reached or answered with a JSON-RPC error."""
 
 

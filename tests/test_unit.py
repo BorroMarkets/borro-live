@@ -607,5 +607,28 @@ class TestCli(Base):
         self.assertNotIn(KEY[2:], text)
 
 
+class KeylessDryRun(unittest.TestCase):
+    """A dry run with no key: BORRO_WALLET stands in for the wallet, and every error is one family."""
+
+    def test_from_env_reads_borro_wallet(self):
+        import os
+        from unittest import mock
+        from borro_live import Broker, BorroLiveError
+        with mock.patch.dict(os.environ, {"BORRO_WALLET": "0x" + "1" * 40}, clear=False):
+            os.environ.pop("BORRO_AGENT_KEY", None)
+            os.environ.pop("BORRO_LIVE", None)
+            b = Broker.from_env()
+            self.assertEqual(b.wallet, "0x" + "1" * 40)
+            self.assertFalse(b.live)
+        with mock.patch.dict(os.environ, {}, clear=True):
+            with self.assertRaises(BorroLiveError):
+                Broker.from_env()
+
+    def test_one_error_family(self):
+        from borro_live import BorroLiveError, McpError, ToolRefused
+        self.assertTrue(issubclass(McpError, BorroLiveError))
+        self.assertTrue(issubclass(ToolRefused, BorroLiveError))
+
+
 if __name__ == "__main__":
     unittest.main()

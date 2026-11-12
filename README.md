@@ -25,7 +25,7 @@ package checks the simulation, signs with your agent's own key and sends through
 ## Five minutes
 
 ```sh
-pip install git+https://github.com/BorroMarkets/borro-live      # or, from a clone: pip install -e .
+pip install borro-live                # or, from a clone: pip install -e .
 ```
 
 Three environment variables:
@@ -35,6 +35,10 @@ export BORRO_AGENT_KEY=0x...          # the agent's own wallet key. Use a fresh 
 export BORRO_RPC_URL=https://...      # your own Robinhood Chain RPC (chain id 4663). There is no built-in one.
 export BORRO_LIVE=1                   # leave this out until you mean it
 ```
+
+To try it with no key at all, set `BORRO_WALLET=0x...` to any address in place of `BORRO_AGENT_KEY`: every order is
+then a dry run simulated from that address, and nothing can be sent. A simulation passes only if that address holds
+the USDG the order needs.
 
 Dry run (leave `BORRO_LIVE` out). It prints Borro's simulation of every step and sends nothing:
 
@@ -96,14 +100,18 @@ results = execute_decisions(Broker.from_env(), result["decisions"], scale=0.01)
 ```
 
 `scale` multiplies every quantity, since the model sizes in whole shares for a paper portfolio and the caps here are
-in USDG. Each ticker gets its own answer; one refusal never stops the others. Runnable:
+in USDG. Pick it so the largest order lands under your per-order cap (10 USDG unless you raise it): an order over the
+cap is refused, not shrunk. Each ticker gets its own answer; one refusal never stops the others. Runnable:
 `python examples/ai_hedge_fund_example.py --buy NVDA 3`.
 
 The v2 engine (`hedge_fund/`, the `aihf` package) has a `Broker` protocol instead: `positions()`, `cash()` and
 `place_order(order)`. `borro_live.ai_hedge_fund.BorroBroker(Broker.from_env())` satisfies it. Whole shares on a signed
 book meet two limits on Borro: a short is closed whole, and an order may not cross zero in one step. Both are refused
-in words, never half done. Treat it as experimental: the engine reconciles its ledger against whole shares, and a
-buy on Borro fills at the share count the swap gave.
+in words, never half done. Treat it as experimental, for three reasons. The engine orders whole shares, so with the
+default 10 USDG cap every order is refused: raise the caps to more than a share of what you trade. The engine expects
+`place_order` to fill or raise, so in a dry run it raises with Borro's simulation and the engine's session stops there.
+And the engine reconciles its ledger against whole shares, while a buy on Borro fills at the share count the swap
+gave. Its own data client also needs its own key.
 
 ## What each order really is
 
@@ -172,7 +180,7 @@ There is no default code. If you ship this in a framework, set yours.
 ## Tests
 
 ```sh
-python -m unittest discover -s tests -p 'test_unit.py'        # 48 tests against recorded MCP answers, no network
+python -m unittest discover -s tests -p 'test_unit.py'        # 50 tests against recorded MCP answers, no network
 ```
 
 Borro also runs the kit end to end on a local fork of Robinhood Chain in its own repository: a dry run, a live buy, lend,

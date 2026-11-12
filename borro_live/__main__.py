@@ -15,7 +15,7 @@ import sys
 
 from .broker import BorroLiveError, Broker
 from .chain import ChainError
-from .mcp import McpError
+from .mcp import McpClient, McpError
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -30,10 +30,11 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--max-day", type=float)
     a = ap.parse_args(argv)
     try:
+        if a.action == "tickers":   # a public read: no key and no wallet needed
+            print(json.dumps([s["symbol"] for s in McpClient().call("markets")["stocks"]], indent=1))
+            return 0
         b = Broker(live=a.live, wallet=a.wallet, builder_code=a.builder_code, max_order_usdg=a.max_order, max_day_usdg=a.max_day)
-        if a.action == "tickers":
-            out = b.tickers()
-        elif a.action == "positions":
+        if a.action == "positions":
             out = {k: v for k, v in b.positions().items() if k != "raw"}
         else:
             if not a.symbol or (a.amount is None and a.action in ("buy", "short", "lend")):

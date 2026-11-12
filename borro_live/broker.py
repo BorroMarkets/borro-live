@@ -14,7 +14,7 @@ from decimal import ROUND_DOWN, Decimal
 from pathlib import Path
 
 from .chain import CHAIN_ID, Chain, ChainError, account_from_key, calldata
-from .mcp import McpClient, ToolRefused
+from .mcp import BorroLiveError, McpClient, ToolRefused
 
 USDG = "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168"
 # BorroBuilders: deposits made through it with a registered code are credited to that code (Bookrunners).
@@ -27,10 +27,6 @@ DEFAULT_MAX_DAY_USDG = 25.0
 DEFAULT_LEVERAGE = 1.01
 # short() deposits this much USDG for each USDG of stock sold, on top of the sale money Borro holds.
 DEFAULT_SHORT_DEPOSIT = 1.0
-
-
-class BorroLiveError(Exception):
-    """An order this kit refuses before anything is signed."""
 
 
 class UnlistedTicker(BorroLiveError):
@@ -111,8 +107,9 @@ class Broker:
                  mcp: McpClient | None = None, chain: Chain | None = None, state_path: str | os.PathLike | None = None):
         key = key or os.environ.get("BORRO_AGENT_KEY")
         self._account = account_from_key(key) if key else None
+        wallet = wallet or os.environ.get("BORRO_WALLET") or None
         if self._account is None and not wallet:
-            raise BorroLiveError("set BORRO_AGENT_KEY (the agent's own key), or give wallet=<address> for a dry run")
+            raise BorroLiveError("set BORRO_AGENT_KEY (the agent's own key), or for a dry run without a key set BORRO_WALLET (or give wallet=) to an address")
         self.wallet = self._account.address if self._account else wallet
         rpc_url = rpc_url or os.environ.get("BORRO_RPC_URL")
         self.chain = chain or (Chain(rpc_url) if rpc_url else None)
@@ -146,7 +143,7 @@ class Broker:
 
     @classmethod
     def from_env(cls, **kw) -> "Broker":
-        """BORRO_AGENT_KEY, BORRO_RPC_URL and BORRO_LIVE; live when BORRO_LIVE=1 unless live= says otherwise."""
+        """BORRO_AGENT_KEY (or BORRO_WALLET, an address, for a dry run without a key), BORRO_RPC_URL and BORRO_LIVE; live when BORRO_LIVE=1 unless live= says otherwise."""
         kw.setdefault("live", os.environ.get("BORRO_LIVE") == "1")
         kw.setdefault("builder_code", os.environ.get("BORRO_BUILDER_CODE") or None)
         return cls(**kw)
