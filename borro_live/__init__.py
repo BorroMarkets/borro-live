@@ -11,6 +11,6 @@ from .broker import BorroLiveError, Broker, CapExceeded, Result, SimulationFaile
 from .chain import Chain, ChainError
 from .mcp import McpClient, McpError, ToolRefused
 
-__version__ = "0.1.0"
+__version__ = "0.1.1"
 __all__ = ["Broker", "Result", "McpClient", "Chain", "BorroLiveError", "UnlistedTicker", "CapExceeded", "SimulationFailed", "Unsafe",
            "ChainError", "McpError", "ToolRefused"]

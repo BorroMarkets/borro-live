@@ -104,14 +104,77 @@ in USDG. Pick it so the largest order lands under your per-order cap (10 USDG un
 cap is refused, not shrunk. Each ticker gets its own answer; one refusal never stops the others. Runnable:
 `python examples/ai_hedge_fund_example.py --buy NVDA 3`.
 
+### The v2 engine
+
 The v2 engine (`hedge_fund/`, the `aihf` package) has a `Broker` protocol instead: `positions()`, `cash()` and
-`place_order(order)`. `borro_live.ai_hedge_fund.BorroBroker(Broker.from_env())` satisfies it. Whole shares on a signed
-book meet two limits on Borro: a short is closed whole, and an order may not cross zero in one step. Both are refused
-in words, never half done. Treat it as experimental, for three reasons. The engine orders whole shares, so with the
-default 10 USDG cap every order is refused: raise the caps to more than a share of what you trade. The engine expects
-`place_order` to fill or raise, so in a dry run it raises with Borro's simulation and the engine's session stops there.
-And the engine reconciles its ledger against whole shares, while a buy on Borro fills at the share count the swap
-gave. Its own data client also needs its own key.
+`place_order(order)`, whole shares on a signed book, fill completely or raise.
+`borro_live.ai_hedge_fund.BorroBroker` satisfies it. The engine's own commands use its simulated and paper brokers
+and take no other, so you call `advance` yourself and keep the state it hands back:
+
+```python
+from hedge_fund.fund import Fund, load_spec
+from hedge_fund.pipeline.session import FundState, advance, next_state
+from borro_live import Broker
+from borro_live.ai_hedge_fund import BorroBroker
+
+broker = BorroBroker(Broker.from_env(max_order_usdg=500, max_day_usdg=2000), simulate_fills=True)   # a dry run
+fund = Fund(load_spec("fund.yaml"))
+state = FundState.initial(broker.cash())          # the fund starts from what the wallet holds
+for session in sessions:                          # completed sessions, oldest first
+    record = advance(fund, state, session, broker, data_client, universe)
+    state = next_state(state, record)
+```
+
+**The engine's own data client needs its own key** (`FINANCIAL_DATASETS_API_KEY`, or a wallet that pays per call
+through x402). `borro-live` gives the engine no market data, and `data_client` above is yours to supply.
+
+Treat this adapter as experimental. What it does, and where it stops:
+
+- **Whole shares.** `positions()` is the stock posted under each long, less the stock each short owes, rounded to
+  whole shares. A buy is sized from Borro's quote so the long gains the whole count the engine ordered.
+- **Cash.** `cash()` is the USDG in the wallet, less the USDG owed under the longs (the 1% loan under each buy), plus
+  the USDG Borro holds against the shorts (the sale money and the deposit). A buy of some shares therefore lowers cash
+  by what those shares cost, and a short raises it by the sale after Borro's fee, as the engine's book expects.
+- **Fills.** When a live order has landed, the book is read again. If it did not move by exactly the order,
+  `place_order` raises `FillMismatch` with the transaction hashes. Otherwise the `Fill` carries the price the cash
+  really moved by, per share, so the engine's fills account for its cash.
+- **Caps.** The engine orders whole shares, and one share of most stocks is worth more than the default 10 USDG
+  cap, so set the caps to cover the orders you expect: `Broker(max_order_usdg=..., max_day_usdg=...)`
+  or `BORRO_MAX_ORDER_USDG` and `BORRO_MAX_DAY_USDG`. An order over a cap is refused in words that name the order, its
+  size and the cap. The day's cap counts every buy and short of the UTC day, so size it for a whole session: the
+  engine stops a session at the first order that raises, with the orders before it already filled.
+- **Dry run.** A broker that is not live sends nothing, and by default `place_order` raises `DryRun` with Borro's
+  simulation, which stops the engine's session. With `simulate_fills=True` it returns a simulated `Fill` instead and
+  keeps those fills in a paper book in memory, so whole sessions run end to end; `positions()` and `cash()` are then
+  the wallet's real book plus the paper one. An order that opens or adds is priced from Borro's simulation of it from
+  your wallet, so the wallet has to hold the USDG (a buy is priced at the most its quote lets it cost, a little over
+  what a live fill pays). An order that closes shares held only on paper cannot be simulated by Borro: it is priced
+  at Borro's price, and its `Result` in `broker.results` says so. The paper book is gone when the process ends.
+- **Refused, never half done.** An order that crosses zero in one step, a buy that covers only part of a short
+  (Borro closes a short whole), and a sell of less than 1% of a long. Each raises, and the engine stops there.
+- **Leave room.** Borro's price is not the engine's mark. A mandate that targets all of its equity can ask for more
+  USDG than the wallet holds, and Borro refuses that buy. The fork test runs at a gross target of 0.9.
+
+**How far the engine's ledger reconciles.** Before each session the engine checks that the broker holds exactly the
+whole shares, and the cash to the cent, that its last record says. A long-only fund on the fork test passed that
+check on four sessions a day apart: a day on, cash was the same to six decimals and every holding was within 0.001
+of a whole share. It cannot hold forever, for three reasons:
+
+- The stock under a long is lent, so it earns lending fees in stock, and the loan under it accrues a borrow fee.
+  Both are small and both move the book between sessions. The check fails once cash has moved a cent or a holding
+  has moved past half a share.
+- The USDG Borro holds against a short earns interest. On the fork, one share of MSTR short (about 236 USDG held)
+  earned about 0.033 USDG in a day, which is over the cent, so a short carried to the next session raises the engine's
+  `BookMismatch`. Booking it by hand clears it: `state = state.model_copy(update={"cash": broker.cash()})`.
+- Anything else that moves the wallet (a transfer, a lend, a position Borro closed for you) is a mismatch too, as it
+  should be. `broker.exact()` gives the unrounded shares and cash at any time.
+
+What was tested, and how: the unit tests, and three steps of the fork test that run the engine itself (`Fund`,
+`advance`, `build_orders` and `reconcile` at commit `5c553b5`, version 2.7.2) with `BorroBroker` on a local fork: a
+dry run with simulated fills, four live sessions a day apart (buys, a trim, a close) and a short. Two stand-ins were
+used there: daily bars from Yahoo through `yfinance` in place of the engine's data client, and a stub analyst with set
+convictions in place of a model. Not tested: the engine's own data client, a model deciding the orders, minute funds,
+long-short mandates, and anything on Robinhood Chain itself. Those fork steps sent nothing to the real chain.
 
 ## What each order really is
 
@@ -180,12 +243,12 @@ There is no default code. If you ship this in a framework, set yours.
 ## Tests
 
 ```sh
-python -m unittest discover -s tests -p 'test_unit.py'        # 50 tests against recorded MCP answers, no network
+python -m unittest discover -s tests -p 'test_unit.py'        # 62 tests against recorded MCP answers, no network
 ```
 
 Borro also runs the kit end to end on a local fork of Robinhood Chain in its own repository: a dry run, a live buy, lend,
-short, cover and sell, both adapters, the caps and a builder code. `BORRO_MCP_URL` points the client at another MCP
-address, which is how that test reaches its local server.
+short, cover and sell, both adapters, the caps, a builder code, and ai-hedge-fund's engine for four sessions. `BORRO_MCP_URL`
+points the client at another MCP address, which is how that test reaches its local server.
 
 `walk.sh` is the one real walk: one small live order per framework from a funded wallet. It asks before it sends.
 

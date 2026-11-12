@@ -553,40 +553,280 @@ class TestAiHedgeFund(Base):
         self.assertEqual(ahf.execute_decisions(b, {"NVDA": D("cover", 0)})["NVDA"].tool, "close_short")
         self.assertIn("unknown action", ahf.execute_decisions(b, {"NVDA": D("yolo", 1)})["NVDA"])
 
-    def test_v2_broker_protocol(self):
-        pos = fx("position_all")
-        s = pos["result"]["structuredContent"]
-        s["stocks"][0]["usdg_loan"]["posted_stock"] = 2.0004
-        s["stocks"][0]["short"] = None
-        live = ahf.BorroBroker(self.broker(live=True, mcp=FakeMcp(position=pos), max_order_usdg=1000, max_day_usdg=5000))
-        book = live.positions()
-        self.assertEqual({k: v.shares for k, v in book.items()}, {"NVDA": 2})
-        self.assertGreater(live.cash(), 0)
-        fill = live.place_order({"ticker": "NVDA", "side": "buy", "quantity": 1, "price": 170.0})
-        self.assertEqual((fill.ticker, fill.side, fill.quantity), ("NVDA", "buy", 1))
-        self.assertAlmostEqual(fill.price, 169.35, places=1)
-        live.place_order({"ticker": "NVDA", "side": "sell", "quantity": 1, "price": 170.0})
-        self.assertAlmostEqual(self.mcp.calls[-1][1]["percent"], 50, places=0)
-        with self.assertRaisesRegex(BorroLiveError, "first, then short"):
-            live.place_order({"ticker": "NVDA", "side": "sell", "quantity": 5, "price": 170.0})
-        live.place_order({"ticker": "TSLA", "side": "sell", "quantity": 1, "price": 400.0})
-        self.assertEqual(self.mcp.names()[-1], "open_short")
-        dry = ahf.BorroBroker(self.broker(mcp=FakeMcp(position=pos), max_order_usdg=1000, max_day_usdg=5000))
-        with self.assertRaises(ahf.DryRun) as e:
-            dry.place_order({"ticker": "NVDA", "side": "buy", "quantity": 1, "price": 170.0})
-        self.assertFalse(e.exception.result.sent)
 
-    def test_v2_cover_is_whole(self):
-        pos = fx("position_all")
-        s = pos["result"]["structuredContent"]
-        s["leveraged_longs"] = []
-        s["stocks"][0]["short"]["owed_stock"] = 3.0
-        b = ahf.BorroBroker(self.broker(live=True, mcp=FakeMcp(position=pos), max_order_usdg=1000))
-        self.assertEqual(b.positions()["NVDA"].shares, -3)
+class Desk:
+    """A made-up wallet on a made-up Borro, answering the five tools the engine's broker uses in the shapes recorded
+    from the real server. An order changes the book only once its transactions were sent through ``chain``."""
+
+    def __init__(self, usdg=1000.0, longs=None, shorts=None, fail_sim=False, shortfall=0.0, windfall=0.0):
+        self.usdg, self.longs, self.shorts = usdg, dict(longs or {}), dict(shorts or {})  # longs: [posted, owed]; shorts: [owed stock, held]
+        self.fail_sim, self.shortfall, self.windfall = fail_sim, shortfall, windfall  # windfall: USDG that lands in the wallet beside an order
+        self.price = {x["symbol"]: x["price_usd"] for x in fx("markets")["result"]["structuredContent"]["stocks"]}
+        self.chain, self._seen, self._pending = None, 0, None
+
+    def answers(self):
+        return {"position": self.position, "open_long": self.open_long, "close_long": self.close_long, "open_short": self.open_short, "close_short": self.close_short}
+
+    def _answer(self, name, quote, then):
+        self._pending = then
+        a = fx(name)
+        a["result"]["structuredContent"]["quote"] = quote
+        if self.fail_sim:
+            a["result"]["structuredContent"]["simulation"]["ok"] = False
+        return a
+
+    @staticmethod
+    def _refuse(text):
+        return {"jsonrpc": "2.0", "id": 1, "result": {"isError": True, "content": [{"type": "text", "text": text}]}}
+
+    def position(self, args):
+        if self.chain is not None and len(self.chain.sent) > self._seen and self._pending:
+            self._pending()
+            self.usdg += self.windfall
+        self._seen, self._pending = (len(self.chain.sent) if self.chain is not None else 0), None
+        a = fx("position_all")
+        s = a["result"]["structuredContent"]
+        s["wallet_balances"]["usdg"] = round(self.usdg, 6)
+        s["leveraged_longs"] = [{"symbol": k, "size_usdg": v[0] * self.price[k], "owed_usdg": v[1]} for k, v in self.longs.items()]
+        s["stocks"] = [{"symbol": k, "price_usd": self.price[k],
+                        **({"usdg_loan": {"posted_stock": self.longs[k][0], "owed_usdg": self.longs[k][1]}} if k in self.longs else {}),
+                        **({"short": {"owed_stock": self.shorts[k][0], "owed_usd": self.shorts[k][0] * self.price[k], "held_usdg": self.shorts[k][1]}} if k in self.shorts else {})}
+                       for k in sorted(set(self.longs) | set(self.shorts))]
+        return a
+
+    def open_long(self, args):
+        sym, margin, lev = args["symbol"], float(args["margin"]), float(args["leverage"])
+        if margin > self.usdg:
+            return self._refuse(f"the wallet holds {self.usdg} USDG, less than the margin")
+        debt, pool = margin * (lev - 1), self.price[sym] * 1.002  # the pool sits a little over Borro's price
+        stock = (margin + debt) * 0.995 / pool                    # Borro buys an exact amount and hands the unspent margin back
+
+        def then():
+            got = stock * (1 - self.shortfall)
+            posted, owed = self.longs.get(sym, [0.0, 0.0])
+            self.longs[sym] = [posted + got, owed + debt]
+            self.usdg -= stock * pool - debt
+        return self._answer("open_long", {"margin_usdg": args["margin"], "leverage": lev, "stock": repr(stock), "size_usdg": repr(stock * self.price[sym]), "debt_usdg": repr(debt)}, then)
+
+    def close_long(self, args):
+        sym, share = args["symbol"], float(args.get("percent", 100)) / 100
+        if sym not in self.longs:
+            return self._refuse(f"this wallet has no leveraged long on {sym}")
+        posted, owed = self.longs[sym]
+        back = posted * share * self.price[sym] * 0.998 - owed * share
+
+        def then():
+            self.usdg += back
+            if share == 1:
+                del self.longs[sym]
+            else:
+                self.longs[sym] = [posted * (1 - share), owed * (1 - share)]
+        return self._answer("close_long", {"back_usdg": repr(back), "owed_usdg": repr(owed), "equity_usdg": repr(posted * self.price[sym] - owed)}, then)
+
+    def open_short(self, args):
+        sym, amount, deposit = args["symbol"], float(args["amount"]), float(args.get("deposit", 0))
+        net = amount * self.price[sym] * 0.998 * 0.999
+
+        def then():
+            owed, held = self.shorts.get(sym, [0.0, 0.0])
+            self.shorts[sym] = [owed + amount, held + net + deposit]
+            self.usdg -= deposit
+        return self._answer("open_short", {"after_fee_usdg": repr(net), "deposit_usdg": args.get("deposit"), "deposit_at_least_usdg": round(0.6 * net, 2), "held_usdg": net + deposit}, then)
+
+    def close_short(self, args):
+        sym = args["symbol"]
+        if sym not in self.shorts:
+            return self._refuse(f"this wallet has no short on {sym}")
+        owed, held = self.shorts[sym]
+
+        def then():
+            self.usdg += held - owed * self.price[sym] * 1.003
+            del self.shorts[sym]
+        return self._answer("close_short", {"top_up_usdg": "0.0"}, then)
+
+
+def order(ticker, side, quantity):
+    return {"ticker": ticker, "side": side, "quantity": quantity, "price": 1.0}
+
+
+class TestEngineBroker(Base):
+    """BorroBroker, ai-hedge-fund's v2 ``Broker`` protocol."""
+
+    def desk(self, live=True, simulate_fills=False, caps=True, **kw):
+        self.d = Desk(**kw)
+        caps = {"max_order_usdg": 5000, "max_day_usdg": 20000} if caps else {}
+        b = self.broker(live=live, mcp=FakeMcp(**self.d.answers()), **caps)
+        self.d.chain = self.chain
+        return ahf.BorroBroker(b, simulate_fills=simulate_fills)
+
+    def test_whole_shares_and_cash_counted_as_the_engine_counts_them(self):
+        b = self.desk(usdg=500.0, longs={"NVDA": [2.0004, 3.4]}, shorts={"TSLA": [1.0000001, 760.0]})
+        self.assertEqual({k: (v.ticker, v.shares) for k, v in b.positions().items()}, {"NVDA": ("NVDA", 2), "TSLA": ("TSLA", -1)})
+        self.assertAlmostEqual(b.cash(), 500.0 - 3.4 + 760.0, places=6)  # the wallet, less the loans under the longs, plus the money held for the shorts
+        self.assertEqual(self.mcp.names(), ["position"])  # one read served both
+        self.assertEqual(b.exact(), {"shares": {"NVDA": 2.0004, "TSLA": -1.0000001}, "cash": b.cash()})
+        self.assertEqual(self.mcp.names(), ["position", "position"])
+        b._seen = (b._seen[0] - 60, b._seen[1])  # a read is kept for seconds, not for the next session
+        b.cash()
+        self.assertEqual(self.mcp.names(), ["position"] * 3)
+        self.assertEqual(self.desk(usdg=7.0, longs={"NVDA": [0.004, 0.01]}).positions(), {})  # under half a share is no row
+
+    def test_a_long_and_a_short_on_one_stock_net(self):
+        b = self.desk(longs={"NVDA": [3.0, 5.0]}, shorts={"NVDA": [1.0, 340.0]})
+        self.assertEqual(b.positions()["NVDA"].shares, 2)
+
+    def test_a_live_buy_gains_the_whole_count_and_is_priced_by_the_cash_it_moved(self):
+        b = self.desk()
+        before = b.cash()
+        fill = b.place_order(order("nvda", "buy", 3))
+        self.assertEqual(self.mcp.names(), ["position", "markets", "position", "open_long", "open_long", "position"])
+        first, second = (c[1] for c in self.mcp.calls if c[0] == "open_long")
+        self.assertAlmostEqual(float(first["margin"]), 3 * self.d.price["NVDA"] / 1.01, places=5)
+        self.assertNotEqual(first["margin"], second["margin"])  # scaled by what the first quote said the margin buys
+        self.assertAlmostEqual(self.d.longs["NVDA"][0], 3, places=6)
+        self.assertEqual((fill.ticker, fill.side, fill.quantity), ("NVDA", "buy", 3))
+        self.assertAlmostEqual(fill.price, (before - b.cash()) / 3, places=9)
+        self.assertAlmostEqual(fill.price, self.d.price["NVDA"] * 1.002, places=3)  # the pool's price, not Borro's and not the order's
+        self.assertEqual(b.positions()["NVDA"].shares, 3)
+        self.assertTrue(b.results[0].sent and len(self.chain.sent) == 3)
+        self.assertAlmostEqual(b.cash(), self.d.usdg - self.d.longs["NVDA"][1], places=6)
+
+    def test_a_live_sell_is_a_share_of_the_long_and_the_last_shares_close_it(self):
+        b = self.desk(longs={"NVDA": [3.0001, 5.0]})
+        before = b.cash()
+        fill = b.place_order(order("NVDA", "sell", 1))
+        self.assertEqual(self.mcp.calls[-2], ("close_long", {"wallet": ME, "symbol": "NVDA", "percent": 33.33}))
+        self.assertAlmostEqual(fill.price, b.cash() - before, places=9)
+        self.assertEqual(b.positions()["NVDA"].shares, 2)
+        b.place_order(order("NVDA", "sell", 2))
+        self.assertEqual(self.mcp.calls[-2][1]["percent"], 100)  # not 99.99: nothing is left behind
+        self.assertEqual((b.positions(), self.d.longs), ({}, {}))
+        self.assertAlmostEqual(b.cash(), self.d.usdg, places=6)
+
+    def test_orders_borro_cannot_fill_whole_are_refused_before_anything_is_asked(self):
+        b = self.desk(longs={"NVDA": [300.0, 500.0]}, shorts={"TSLA": [3.0, 2300.0]})
+        for o, why in ((order("NVDA", "sell", 1), "at least 1% of a long"), (order("NVDA", "sell", 301), "sell the 300 NVDA held first, then short"),
+                       (order("TSLA", "buy", 1), "closes a short whole: buy 3 TSLA"), (order("TSLA", "buy", 4), "closes a short whole"),
+                       (order("NVDA", "hold", 1), "buy or sell"), (order("NVDA", "buy", 0), "at least one share")):
+            with self.assertRaisesRegex(BorroLiveError, why):
+                b.place_order(o)
+        with self.assertRaises(UnlistedTicker):
+            b.place_order(order("DOGE", "buy", 1))
+        self.assertTrue(set(self.mcp.names()) <= {"position", "markets"})
+        self.assertEqual((self.chain.sent, b.results), ([], []))
+
+    def test_a_live_short_counts_the_money_borro_holds_and_a_cover_closes_it_whole(self):
+        b = self.desk()
+        before = b.cash()
+        fill = b.place_order(order("TSLA", "sell", 2))
+        self.assertEqual(self.mcp.names()[-3:], ["open_short", "open_short", "position"])
+        self.assertAlmostEqual(float(self.mcp.calls[-2][1]["amount"]), 2, places=12)
+        self.assertEqual(b.positions()["TSLA"].shares, -2)
+        self.assertAlmostEqual(fill.price, self.d.price["TSLA"] * 0.998 * 0.999, places=6)  # the sale after Borro's fee, per share
+        self.assertAlmostEqual(b.cash(), before + 2 * fill.price, places=6)  # cash rose by the sale, though the wallet paid the deposit in
+        self.assertLess(self.d.usdg, 1000 - 2 * 370)
+        cover = b.place_order(order("TSLA", "buy", 2))
+        self.assertEqual(self.mcp.names()[-2:], ["close_short", "position"])
+        self.assertAlmostEqual(cover.price, self.d.price["TSLA"] * 1.003, places=6)
+        self.assertEqual(b.positions(), {})
+        self.assertAlmostEqual(b.cash(), before + 2 * fill.price - 2 * cover.price, places=6)
+
+    def test_a_fill_that_did_not_move_the_book_by_the_order_raises(self):
+        b = self.desk(shortfall=0.4)
+        with self.assertRaisesRegex(ahf.FillMismatch, r"buy 3 NVDA was sent \(0x[0-9a-f]{64}.*moved by \+2 shares.*holds 1\.8 NVDA now"):
+            b.place_order(order("NVDA", "buy", 3))
+        self.assertTrue(b.results[0].sent)  # the order is on record, with its hashes
+        b = self.desk(windfall=5000.0)  # the shares came, but money reached the wallet from elsewhere while the order ran
+        with self.assertRaisesRegex(ahf.FillMismatch, r"buy 1 NVDA was sent .*moved by \+1 shares and \+48\d\d\.\d+ USDG"):
+            b.place_order(order("NVDA", "buy", 1))
+
+    def test_a_whole_share_over_a_cap_names_the_order_the_cap_and_how_to_raise_it(self):
+        b = self.desk(caps=False)  # 10 USDG an order, 25 a day
+        with self.assertRaises(CapExceeded) as e:
+            b.place_order(order("NVDA", "buy", 1))
+        for part in ("buy 1 NVDA is about 169.36 USDG", "per-order cap of 10 (max_order_usdg)", "whole shares", "Broker(max_order_usdg=..., max_day_usdg=...)", "BORRO_MAX_ORDER_USDG and BORRO_MAX_DAY_USDG"):
+            self.assertIn(part, str(e.exception))
+        with self.assertRaisesRegex(CapExceeded, "sell 1 TSLA is about 378.19 USDG.*per-order cap of 10"):
+            b.place_order(order("TSLA", "sell", 1))
+        self.assertTrue(set(self.mcp.names()) <= {"position", "markets"})  # refused before Borro was asked for a quote
+        d = Desk()
+        day = ahf.BorroBroker(self.broker(live=True, mcp=FakeMcp(**d.answers()), max_order_usdg=1000, max_day_usdg=200))
+        with self.assertRaisesRegex(CapExceeded, "buy 2 NVDA is about 338.72 USDG.*today's cap of 200.*max_day_usdg"):
+            day.place_order(order("NVDA", "buy", 2))
+        self.assertEqual(self.chain.sent, [])
+
+    def test_a_dry_run_raises_with_the_simulation_unless_simulated_fills_are_asked_for(self):
+        b = self.desk(live=False)
+        with self.assertRaisesRegex(ahf.DryRun, "simulated \\(ok\\) and not sent.*simulate_fills=True") as e:
+            b.place_order(order("NVDA", "buy", 1))
+        self.assertTrue(e.exception.result.ok and not e.exception.result.sent)
+        self.assertEqual((b.positions(), b.cash(), self.chain.sent), ({}, 1000.0, []))
+        self.assertFalse(b.simulate_fills)
+
+    def test_simulated_fills_are_refused_on_a_live_broker(self):
+        with self.assertRaisesRegex(BorroLiveError, "simulate_fills is for a dry run"):
+            self.desk(live=True, simulate_fills=True)
+
+    def test_simulated_fills_keep_a_paper_book_and_send_nothing(self):
+        b = self.desk(live=False, simulate_fills=True)
+        fill = b.place_order(order("NVDA", "buy", 2))
+        q = b.results[0].quote
+        self.assertAlmostEqual(fill.price, (float(q["margin_usdg"]) + float(q["debt_usdg"])) / 2, places=9)  # the most the quote lets the order cost
+        self.assertAlmostEqual(float(q["stock"]), 2, places=6)
+        self.assertEqual(b.positions()["NVDA"].shares, 2)
+        self.assertAlmostEqual(b.cash(), 1000 - 2 * fill.price, places=9)
+        sold = b.place_order(order("NVDA", "sell", 1))  # these shares exist only on paper: Borro has nothing to simulate
+        self.assertEqual(sold.price, self.d.price["NVDA"])
+        self.assertIn("not simulated", b.results[1].note)
+        self.assertFalse(b.results[1].ok or b.results[1].sent)
+        self.assertNotIn("close_long", self.mcp.names())
+        with self.assertRaisesRegex(BorroLiveError, "sell the 1 NVDA held first"):
+            b.place_order(order("NVDA", "sell", 2))
+        b.place_order(order("NVDA", "sell", 1))
+        self.assertEqual(b.positions(), {})
+        short = b.place_order(order("TSLA", "sell", 1))
+        self.assertAlmostEqual(short.price, float(b.results[-1].quote["after_fee_usdg"]), places=9)
+        self.assertEqual(b.positions()["TSLA"].shares, -1)
         with self.assertRaisesRegex(BorroLiveError, "closes a short whole"):
-            b.place_order({"ticker": "NVDA", "side": "buy", "quantity": 1, "price": 170.0})
-        b.place_order({"ticker": "NVDA", "side": "buy", "quantity": 3, "price": 170.0})
+            b.place_order(order("TSLA", "buy", 2))
+        cover = b.place_order(order("TSLA", "buy", 1))
+        self.assertEqual(cover.price, self.d.price["TSLA"])
+        self.assertIn("not simulated", b.results[-1].note)
+        self.assertEqual(b.positions(), {})
+        self.assertAlmostEqual(b.cash(), 1000 - 2 * fill.price + 2 * sold.price + short.price - cover.price, places=9)
+        self.assertEqual((self.chain.sent, b.exact()), ([], {"shares": {}, "cash": 1000.0}))  # the wallet never moved
+        self.assertTrue(all(not r.sent and not r.live for r in b.results))
+
+    def test_simulated_closes_of_what_the_wallet_really_holds_are_borros_simulations(self):
+        b = self.desk(live=False, simulate_fills=True, longs={"NVDA": [2.0, 3.0]}, shorts={"TSLA": [1.0, 760.0]})
+        sold = b.place_order(order("NVDA", "sell", 1))
+        self.assertEqual(self.mcp.calls[-1], ("close_long", {"wallet": ME, "symbol": "NVDA", "percent": 50.0}))
+        q = b.results[0].quote
+        self.assertAlmostEqual(sold.price, float(q["back_usdg"]) + float(q["owed_usdg"]) / 2, places=9)  # what comes back plus the loan it repays
+        self.assertTrue(b.results[0].ok)
+        cover = b.place_order(order("TSLA", "buy", 1))
         self.assertEqual(self.mcp.names()[-1], "close_short")
+        self.assertEqual(cover.price, self.d.price["TSLA"])
+        self.assertIn("carries no cost", b.results[1].note)
+        self.assertEqual({k: v.shares for k, v in b.positions().items()}, {"NVDA": 1})
+        self.assertEqual(b.exact()["shares"], {"NVDA": 2.0, "TSLA": -1.0})
+
+    def test_a_failed_simulation_gives_no_simulated_fill(self):
+        b = self.desk(live=False, simulate_fills=True, fail_sim=True)
+        with self.assertRaisesRegex(SimulationFailed, "buy 1 NVDA: Borro's simulation failed"):
+            b.place_order(order("NVDA", "buy", 1))
+        self.assertEqual((b.positions(), b.cash()), ({}, 1000.0))
+
+    def test_the_engines_own_models_when_it_is_installed(self):
+        b = self.desk(longs={"NVDA": [2.0, 3.0]})
+        try:
+            from hedge_fund.brokers.models import Fill, Order, Position
+            from hedge_fund.brokers.protocol import Broker as EngineBroker
+        except ImportError:
+            self.skipTest("ai-hedge-fund's v2 engine (aihf) is not installed")
+        self.assertIsInstance(b, EngineBroker)
+        self.assertIsInstance(b.positions()["NVDA"], Position)
+        self.assertIsInstance(b.place_order(Order(ticker="NVDA", side="sell", quantity=2, price=170.0)), Fill)
 
 
 class TestCli(Base):
