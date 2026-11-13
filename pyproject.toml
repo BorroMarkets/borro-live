@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "borro-live"
-version = "0.1.1"
-description = "Send a trading agent's decisions to Borro on Robinhood Chain: buy, sell, short, cover and lend tokenized stocks against USDG. Adapters for TradingAgents and ai-hedge-fund."
+version = "0.2.0"
+description = "Send a trading agent's decisions to Borro on Robinhood Chain: spot buy and sell, short, cover and lend tokenized stocks against USDG. Adapters for TradingAgents and ai-hedge-fund."
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
@@ -16,7 +16,6 @@ dependencies = ["eth-account>=0.13"]
 [project.urls]
 Homepage = "https://borro.markets/go-live"
 Documentation = "https://borro.markets/developers"
-Repository = "https://github.com/BorroMarkets/borro-live"
 
 [project.scripts]
 borro-live = "borro_live.__main__:main"

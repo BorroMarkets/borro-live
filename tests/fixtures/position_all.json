@@ -1,1 +1,114 @@
-{"jsonrpc":"2.0","id":1,"result":{"content":[{"type":"text","text":"{\"wallet\":\"0xa8049bB68181799124F98E467DD749e120abFA64\",\"read_at\":\"2026-11-10T21:20:34.400Z\",\"wallet_balances\":{\"eth\":1.9999692590069211,\"usdg\":489.395081},\"stocks\":[{\"symbol\":\"NVDA\",\"price_usd\":169.35917863,\"short\":{\"owed_stock\":0.030000000000338294,\"owed_usd\":5.080775,\"held_usdg\":8.162484,\"closed_for_you_at_price\":170.05175,\"limit_used\":0.995927,\"rent\":{\"yearly\":0.000263,\"shorters\":\"pay\",\"includes_borro\":false},\"opened\":{\"stock\":0.03,\"entry_price\":169.359167,\"at\":\"2026-11-10T21:20:33.000Z\",\"rent_so_far_stock\":0},\"parts\":[{\"kind\":\"own\",\"owed_stock\":0.03,\"held_usdg\":8.162484,\"whole_short_on_this_stock\":true}],\"note\":null},\"usdg_loan\":{\"posted_stock\":0.014769292367056293,\"posted_value_usd\":2.50119,\"owed_usdg\":0.025,\"can_borrow_up_to\":1.563243,\"limit_used\":0.015992,\"closed_for_you_at_price\":2.708459}}],\"usdg_lent\":{\"usdg\":4.999999,\"apr\":0.009378,\"includes_borro\":false,\"text\":\"0.94%\"},\"pairs\":[],\"leveraged_longs\":[{\"symbol\":\"NVDA\",\"size_usdg\":2.50119,\"owed_usdg\":0.025,\"equity_usdg\":2.47619,\"put_in_usdg\":2.487375,\"pnl_usdg\":-0.011185,\"leverage\":1.010096,\"limit_used\":0.015992,\"closed_for_you_at_price\":2.708459}],\"gap_cover\":{\"pool\":\"0xA3dE24bC6BC1818B41351dA332dc5c643D5282CC\",\"in_pool_usdg\":0,\"pool_shares\":\"0\",\"free_in_pool_usdg\":0,\"withdrawals_locked\":false,\"owed_usdg\":0,\"owed_note\":null,\"covers\":[],\"states\":\"waiting: before the reopen; printing: reopened, no feed print yet; settle: the first print came in time, settle_cover settles it; late, far or silent: the first print came over two hours late, came over 50% from the reference, or never came in seven days, and settle_cover voids it (the premium the pool kept goes back); done: settled or voided\"},\"options\":{\"desk\":\"0x198f8c5b5452eEa09A7b65bc0005B097546099fe\",\"longs\":[],\"writes\":[],\"open_orders\":[],\"premiums_apr\":null,\"premiums_apr_is\":\"premiums received for writing (less Borro's share) over what their locks were worth, for the time from each fill to its expiry, as a yearly rate; null before the first fill. It looks back at what was written; it is not a forecast.\",\"found_from\":\"the series in Borro's options file (open ones, and the newest settled) and the desk's newest orders\"},\"bear_coins_owned\":[],\"borro\":{\"in_wallet\":0,\"earned_total\":0,\"claimed\":0,\"to_claim_now\":0,\"claims_paused\":false},\"rebates\":{\"live\":false,\"note\":\"Locker rebates are not live yet: nothing is counted or paid.\"}}"}],"structuredContent":{"wallet":"0xa8049bB68181799124F98E467DD749e120abFA64","read_at":"2026-11-10T21:20:34.400Z","wallet_balances":{"eth":1.9999692590069211,"usdg":489.395081},"stocks":[{"symbol":"NVDA","price_usd":169.35917863,"short":{"owed_stock":0.030000000000338294,"owed_usd":5.080775,"held_usdg":8.162484,"closed_for_you_at_price":170.05175,"limit_used":0.995927,"rent":{"yearly":0.000263,"shorters":"pay","includes_borro":false},"opened":{"stock":0.03,"entry_price":169.359167,"at":"2026-11-10T21:20:33.000Z","rent_so_far_stock":0},"parts":[{"kind":"own","owed_stock":0.03,"held_usdg":8.162484,"whole_short_on_this_stock":true}],"note":null},"usdg_loan":{"posted_stock":0.014769292367056293,"posted_value_usd":2.50119,"owed_usdg":0.025,"can_borrow_up_to":1.563243,"limit_used":0.015992,"closed_for_you_at_price":2.708459}}],"usdg_lent":{"usdg":4.999999,"apr":0.009378,"includes_borro":false,"text":"0.94%"},"pairs":[],"leveraged_longs":[{"symbol":"NVDA","size_usdg":2.50119,"owed_usdg":0.025,"equity_usdg":2.47619,"put_in_usdg":2.487375,"pnl_usdg":-0.011185,"leverage":1.010096,"limit_used":0.015992,"closed_for_you_at_price":2.708459}],"gap_cover":{"pool":"0xA3dE24bC6BC1818B41351dA332dc5c643D5282CC","in_pool_usdg":0,"pool_shares":"0","free_in_pool_usdg":0,"withdrawals_locked":false,"owed_usdg":0,"owed_note":null,"covers":[],"states":"waiting: before the reopen; printing: reopened, no feed print yet; settle: the first print came in time, settle_cover settles it; late, far or silent: the first print came over two hours late, came over 50% from the reference, or never came in seven days, and settle_cover voids it (the premium the pool kept goes back); done: settled or voided"},"options":{"desk":"0x198f8c5b5452eEa09A7b65bc0005B097546099fe","longs":[],"writes":[],"open_orders":[],"premiums_apr":null,"premiums_apr_is":"premiums received for writing (less Borro's share) over what their locks were worth, for the time from each fill to its expiry, as a yearly rate; null before the first fill. It looks back at what was written; it is not a forecast.","found_from":"the series in Borro's options file (open ones, and the newest settled) and the desk's newest orders"},"bear_coins_owned":[],"borro":{"in_wallet":0,"earned_total":0,"claimed":0,"to_claim_now":0,"claims_paused":false},"rebates":{"live":false,"note":"Locker rebates are not live yet: nothing is counted or paid."}}}}
+{
+ "jsonrpc": "2.0",
+ "id": 1,
+ "result": {
+  "content": [
+   {
+    "type": "text",
+    "text": "{\"wallet\":\"0xa8049bB68181799124F98E467DD749e120abFA64\",\"read_at\":\"2026-11-13T17:27:44.124Z\",\"wallet_balances\":{\"eth\":1.9966911080007563,\"usdg\":484.412625},\"stocks\":[{\"symbol\":\"NVDA\",\"price_usd\":160.68195761,\"in_wallet\":0.030666928810419228,\"short\":{\"owed_stock\":0.030000000000696473,\"owed_usd\":4.820459,\"held_usdg\":7.903732,\"closed_for_you_at_price\":164.661083,\"limit_used\":0.975834,\"rent\":{\"yearly\":0.000251,\"shorters\":\"pay\",\"includes_borro\":false},\"opened\":{\"stock\":0.03,\"entry_price\":160.681933,\"at\":\"2026-11-13T17:27:22.000Z\",\"rent_so_far_stock\":0},\"parts\":[{\"kind\":\"own\",\"owed_stock\":0.03,\"held_usdg\":7.903732,\"whole_short_on_this_stock\":true}],\"note\":null},\"usdg_loan\":{\"posted_stock\":0.015564891250530725,\"posted_value_usd\":2.501158,\"owed_usdg\":0.025001,\"can_borrow_up_to\":1.563223,\"limit_used\":0.015993,\"closed_for_you_at_price\":2.569825}}],\"usdg_lent\":{\"usdg\":5,\"apr\":0.008851,\"includes_borro\":false,\"text\":\"0.89%\"},\"pairs\":[],\"leveraged_longs\":[{\"symbol\":\"NVDA\",\"size_usdg\":2.501158,\"owed_usdg\":0.025001,\"equity_usdg\":2.476157,\"put_in_usdg\":2.487375,\"pnl_usdg\":-0.011218,\"leverage\":1.010097,\"limit_used\":0.015993,\"closed_for_you_at_price\":2.569825}],\"gap_cover\":{\"pool\":\"0xA3dE24bC6BC1818B41351dA332dc5c643D5282CC\",\"in_pool_usdg\":0,\"pool_shares\":\"0\",\"free_in_pool_usdg\":0,\"withdrawals_locked\":false,\"owed_usdg\":0,\"owed_note\":null,\"covers\":[],\"states\":\"waiting: before the reopen; printing: reopened, no feed print yet; settle: the first print came in time, settle_cover settles it; late, far or silent: the first print came over two hours late, came over 50% from the reference, or never came in seven days, and settle_cover voids it (the premium the pool kept goes back); done: settled or voided\"},\"options\":{\"desk\":\"0x198f8c5b5452eEa09A7b65bc0005B097546099fe\",\"longs\":[],\"writes\":[],\"open_orders\":[],\"premiums_apr\":null,\"premiums_apr_is\":\"premiums received for writing (less Borro's share) over what their locks were worth, for the time from each fill to its expiry, as a yearly rate; null before the first fill. It looks back at what was written; it is not a forecast.\",\"found_from\":\"the series in Borro's options file (open ones, and the newest settled) and the desk's newest orders\"},\"bear_coins_owned\":[],\"borro\":{\"in_wallet\":0,\"earned_total\":0,\"claimed\":0,\"to_claim_now\":0,\"claims_paused\":false},\"rebates\":{\"live\":false,\"note\":\"Locker rebates are not live yet: nothing is counted or paid.\"}}"
+   }
+  ],
+  "structuredContent": {
+   "wallet": "0xa8049bB68181799124F98E467DD749e120abFA64",
+   "read_at": "2026-11-13T17:27:44.124Z",
+   "wallet_balances": {
+    "eth": 1.9966911080007563,
+    "usdg": 484.412625
+   },
+   "stocks": [
+    {
+     "symbol": "NVDA",
+     "price_usd": 160.68195761,
+     "in_wallet": 0.030666928810419228,
+     "short": {
+      "owed_stock": 0.030000000000696473,
+      "owed_usd": 4.820459,
+      "held_usdg": 7.903732,
+      "closed_for_you_at_price": 164.661083,
+      "limit_used": 0.975834,
+      "rent": {
+       "yearly": 0.000251,
+       "shorters": "pay",
+       "includes_borro": false
+      },
+      "opened": {
+       "stock": 0.03,
+       "entry_price": 160.681933,
+       "at": "2026-11-13T17:27:22.000Z",
+       "rent_so_far_stock": 0
+      },
+      "parts": [
+       {
+        "kind": "own",
+        "owed_stock": 0.03,
+        "held_usdg": 7.903732,
+        "whole_short_on_this_stock": true
+       }
+      ],
+      "note": null
+     },
+     "usdg_loan": {
+      "posted_stock": 0.015564891250530725,
+      "posted_value_usd": 2.501158,
+      "owed_usdg": 0.025001,
+      "can_borrow_up_to": 1.563223,
+      "limit_used": 0.015993,
+      "closed_for_you_at_price": 2.569825
+     }
+    }
+   ],
+   "usdg_lent": {
+    "usdg": 5,
+    "apr": 0.008851,
+    "includes_borro": false,
+    "text": "0.89%"
+   },
+   "pairs": [],
+   "leveraged_longs": [
+    {
+     "symbol": "NVDA",
+     "size_usdg": 2.501158,
+     "owed_usdg": 0.025001,
+     "equity_usdg": 2.476157,
+     "put_in_usdg": 2.487375,
+     "pnl_usdg": -0.011218,
+     "leverage": 1.010097,
+     "limit_used": 0.015993,
+     "closed_for_you_at_price": 2.569825
+    }
+   ],
+   "gap_cover": {
+    "pool": "0xA3dE24bC6BC1818B41351dA332dc5c643D5282CC",
+    "in_pool_usdg": 0,
+    "pool_shares": "0",
+    "free_in_pool_usdg": 0,
+    "withdrawals_locked": false,
+    "owed_usdg": 0,
+    "owed_note": null,
+    "covers": [],
+    "states": "waiting: before the reopen; printing: reopened, no feed print yet; settle: the first print came in time, settle_cover settles it; late, far or silent: the first print came over two hours late, came over 50% from the reference, or never came in seven days, and settle_cover voids it (the premium the pool kept goes back); done: settled or voided"
+   },
+   "options": {
+    "desk": "0x198f8c5b5452eEa09A7b65bc0005B097546099fe",
+    "longs": [],
+    "writes": [],
+    "open_orders": [],
+    "premiums_apr": null,
+    "premiums_apr_is": "premiums received for writing (less Borro's share) over what their locks were worth, for the time from each fill to its expiry, as a yearly rate; null before the first fill. It looks back at what was written; it is not a forecast.",
+    "found_from": "the series in Borro's options file (open ones, and the newest settled) and the desk's newest orders"
+   },
+   "bear_coins_owned": [],
+   "borro": {
+    "in_wallet": 0,
+    "earned_total": 0,
+    "claimed": 0,
+    "to_claim_now": 0,
+    "claims_paused": false
+   },
+   "rebates": {
+    "live": false,
+    "note": "Locker rebates are not live yet: nothing is counted or paid."
+   }
+  }
+ }
+}

@@ -1,5 +1,8 @@
 """The broker: buy, sell, short, cover, lend and positions on Borro, with the safety rules in one place.
 
+buy and sell are plain spot orders: USDG for a stock token in the wallet, and back. short, cover and lend use Borro's
+lending market.
+
 Nothing is sent unless the broker was made with ``live=True`` AND the environment has ``BORRO_LIVE=1``. Without
 both, every order is a dry run: it returns Borro's own simulation of each step and sends nothing.
 """
@@ -17,14 +20,18 @@ from .chain import CHAIN_ID, Chain, ChainError, account_from_key, calldata
 from .mcp import BorroLiveError, McpClient, ToolRefused
 
 USDG = "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168"
+# Spot orders go through Uniswap: the token is approved to Permit2, Permit2 lets the Universal Router take it, and the
+# router swaps. A spot order's steps may go nowhere else.
+PERMIT2 = "0x000000000022D473030F116dDEE9F6B43aC78BA3"
+UNIVERSAL_ROUTER = "0x8876789976dEcBfCbBbe364623C63652db8C0904"
+PERMIT2_APPROVE = "0x87517c45"  # approve(address token, address spender, uint160 amount, uint48 expiration)
+SPOT_TOOLS = ("buy_stock", "sell_stock")
 # BorroBuilders: deposits made through it with a registered code are credited to that code (Bookrunners).
 BORRO_BUILDERS = "0x082Ae609bdC7ccEec0C58B2361a21c49dc2aE291"
 APPROVE = "0x095ea7b3"
 
 DEFAULT_MAX_ORDER_USDG = 10.0
 DEFAULT_MAX_DAY_USDG = 25.0
-# buy() is a long at the lowest leverage that makes sense on Borro: the order's USDG plus 1% borrowed.
-DEFAULT_LEVERAGE = 1.01
 # short() deposits this much USDG for each USDG of stock sold, on top of the sale money Borro holds.
 DEFAULT_SHORT_DEPOSIT = 1.0
 
@@ -39,6 +46,10 @@ class CapExceeded(BorroLiveError):
 
 class SimulationFailed(BorroLiveError):
     pass
+
+
+class SpotUnavailable(BorroLiveError):
+    """The MCP server does not list the spot tools (``buy_stock`` and ``sell_stock``), so ``buy`` and ``sell`` cannot run."""
 
 
 class Unsafe(BorroLiveError):
@@ -99,11 +110,13 @@ class Broker:
     max_day_usdg    the most all orders of one UTC day may be worth (default 25, or BORRO_MAX_DAY_USDG).
     builder_code    a Bookrunner code. When set, the wallet is bound to it once and lends go through BorroBuilders,
                     so the code's owner earns a share of Borro's fees. No default.
+    slip_bps        the most a spot order's price may move against Borro's quote before it reverts, in hundredths of
+                    a percent (default: Borro's own, 50).
     """
 
     def __init__(self, key: str | None = None, rpc_url: str | None = None, *, live: bool = False, wallet: str | None = None,
                  max_order_usdg: float | None = None, max_day_usdg: float | None = None, builder_code: str | None = None,
-                 leverage: float = DEFAULT_LEVERAGE, short_deposit: float = DEFAULT_SHORT_DEPOSIT,
+                 slip_bps: int | None = None, short_deposit: float = DEFAULT_SHORT_DEPOSIT,
                  mcp: McpClient | None = None, chain: Chain | None = None, state_path: str | os.PathLike | None = None):
         key = key or os.environ.get("BORRO_AGENT_KEY")
         self._account = account_from_key(key) if key else None
@@ -128,15 +141,16 @@ class Broker:
         self.builder_code = (builder_code or "").strip().lower() or None
         if self.builder_code and not (self.builder_code.isascii() and len(self.builder_code) <= 31 and self.builder_code.replace("-", "").replace("_", "").isalnum()):
             raise BorroLiveError("a builder code is up to 31 letters, digits, - or _")
-        if not (1 < leverage <= 1.35):
-            raise BorroLiveError("leverage for buy() goes from just over 1 to 1.35")
+        if slip_bps is not None and not (isinstance(slip_bps, int) and not isinstance(slip_bps, bool) and 1 <= slip_bps <= 500):
+            raise BorroLiveError("slip_bps is a whole number from 1 to 500 (50 is 0.5%)")
         if not short_deposit >= 0.5:
             raise BorroLiveError("short_deposit must be at least 0.5 (USDG deposited for each USDG shorted)")
-        self.leverage = leverage
+        self.slip_bps = slip_bps
         self.short_deposit = short_deposit
         self.mcp = mcp or McpClient()
         self._state_path = Path(state_path or os.environ.get("BORRO_LIVE_STATE") or Path.home() / ".borro-live" / "state.json")
         self._markets: tuple[float, dict] | None = None
+        self._spot_listed: bool | None = None
 
     def __repr__(self) -> str:
         return f"Broker(wallet={self.wallet}, live={self.live}, max_order_usdg={self.max_order_usdg}, max_day_usdg={self.max_day_usdg})"
@@ -170,13 +184,19 @@ class Broker:
         return float(self._stock(symbol)["price_usd"])
 
     def positions(self) -> dict:
-        """What the wallet has on Borro, from the ``position`` tool: longs, shorts, what is lent, and its balances."""
+        """What the wallet has, from the ``position`` tool: its balances, the stock tokens it holds, shorts and lends.
+
+        ``holdings`` are the stock tokens in the wallet itself, which is what ``buy`` buys and ``sell`` sells.
+        ``longs`` are leveraged longs on Borro (``buy`` opened one at 1.01x before 0.2.0; ``close_long`` closes it).
+        """
         p = self.mcp.call("position", {"wallet": self.wallet})
         stocks = p.get("stocks") or []
         return {
             "wallet": p.get("wallet", self.wallet),
             "eth": (p.get("wallet_balances") or {}).get("eth"),
             "usdg": (p.get("wallet_balances") or {}).get("usdg"),
+            "holdings": [{"symbol": s["symbol"], "shares": float(s["in_wallet"]), "value_usd": round(float(s["in_wallet"]) * float(s.get("price_usd") or 0), 6)}
+                         for s in stocks if float(s.get("in_wallet") or 0) > 0],
             "longs": p.get("leveraged_longs") or [],
             "shorts": [{"symbol": s["symbol"], **s["short"]} for s in stocks if s.get("short")],
             "lent_usdg": (p.get("usdg_lent") or {}).get("usdg", 0),
@@ -187,21 +207,55 @@ class Broker:
     # ---- orders ------------------------------------------------------------------------------------------------
 
     def buy(self, symbol: str, usdg: float) -> Result:
-        """Buy ``usdg`` worth of a stock token.
+        """Buy ``usdg`` worth of a stock token: a plain spot order (``buy_stock``).
 
-        Borro's tools have no plain spot buy for USDG, so this is the nearest thing: a long at 1.01x (``open_long``).
-        The USDG buys the stock token, the token is lent (it earns lending fees) and posted, and 1% of the order is
-        borrowed against it. ``sell`` takes it back to USDG.
+        All the USDG is spent on Uniswap, through the stock's own pools, and the token arrives in this wallet. Nothing
+        is lent, posted or borrowed. Borro's fee comes out of the USDG inside the swap; the quote shows it
+        (``fee_usdg``) with the least stock the order accepts. ``sell`` swaps the token back to USDG.
         """
         s = self._stock(symbol)
-        return self._order("buy", s["symbol"], usdg, "open_long", {"symbol": s["symbol"], "margin": _dec(usdg, 6), "leverage": self.leverage})
+        self._check_caps(usdg)
+        self._need_spot()
+        return self._order("buy", s["symbol"], usdg, "buy_stock", {"symbol": s["symbol"], "usdg": _dec(usdg, 6), **self._slip()}, spot_token=USDG)
 
-    def sell(self, symbol: str, percent: float = 100) -> Result:
-        """Sell all or part of the long ``buy`` opened: the stock is sold, the small debt repaid, USDG comes back."""
+    def sell(self, symbol: str, percent: float = 100, *, shares: float | None = None) -> Result:
+        """Sell a stock token the wallet holds for USDG: a plain spot order (``sell_stock``).
+
+        ``percent`` of what the wallet holds (default all of it), or exactly ``shares``. Stock lent on Borro is not in
+        the wallet: take it back first. Borro's fee comes out of the USDG inside the swap.
+        """
+        s = self._stock(symbol)
+        if shares is None and not (1 <= percent <= 100):
+            raise BorroLiveError("percent must be from 1 to 100")
+        if shares is not None and not float(shares) > 0:
+            raise BorroLiveError("shares must be more than 0")
+        self._need_spot()
+        if shares is None and percent == 100:
+            args = {"all": True}
+        else:
+            if shares is None:
+                held = self.held(s["symbol"])
+                if not held > 0:
+                    raise BorroLiveError(f"the wallet holds no {s['symbol']} to sell")
+                shares = Decimal(str(held)) * Decimal(str(percent)) / 100
+            args = {"amount": _dec(shares, 18)}
+        return self._order("sell", s["symbol"], None, "sell_stock", {"symbol": s["symbol"], **args, **self._slip()}, spot_token=s["contracts"]["token"])
+
+    def close_long(self, symbol: str, percent: float = 100) -> Result:
+        """Close a leveraged long on Borro (``close_long``): the stock is sold, the debt repaid, USDG comes back.
+
+        ``buy`` no longer opens one. This is for a long opened by borro-live before 0.2.0 (a buy was a long at 1.01x
+        then), or opened elsewhere; ``positions()["longs"]`` lists them.
+        """
         s = self._stock(symbol)
         if not (1 <= percent <= 100):
             raise BorroLiveError("percent must be from 1 to 100")
-        return self._order("sell", s["symbol"], None, "close_long", {"symbol": s["symbol"], "percent": round(float(percent), 2)})
+        return self._order("close_long", s["symbol"], None, "close_long", {"symbol": s["symbol"], "percent": round(float(percent), 2)})
+
+    def held(self, symbol: str) -> float:
+        """How much of a stock token the wallet itself holds, in shares."""
+        sym = str(symbol or "").strip().upper()
+        return float(next((h["shares"] for h in self.positions()["holdings"] if h["symbol"] == sym), 0))
 
     def short(self, symbol: str, usdg: float) -> Result:
         """Short ``usdg`` worth of a stock: borrow it, sell it, hold the money plus a USDG deposit (``open_short``).
@@ -250,8 +304,7 @@ class Broker:
     def buy_spot_with_eth(self, symbol: str, shares: float) -> Result:
         """A plain spot buy, paid in the wallet's ETH (``buy_with_eth``): the stock token lands in the wallet.
 
-        No Borro tool sells a token held in the wallet back, so what this buys can be lent with ``lend`` or sold
-        elsewhere; ``sell`` only closes longs opened by ``buy``.
+        ``sell`` sells it for USDG and ``lend`` lends it, like a token ``buy`` bought.
         """
         s = self._stock(symbol)
         return self._order("buy_spot_with_eth", s["symbol"], float(shares) * float(s["price_usd"]), "buy_with_eth",
@@ -259,7 +312,8 @@ class Broker:
 
     # ---- the one path every order takes ------------------------------------------------------------------------
 
-    def _order(self, action: str, symbol: str, usdg: float | None, tool: str, args: dict, *, usdg_out: float | None = None, pays_eth: bool = False) -> Result:
+    def _order(self, action: str, symbol: str, usdg: float | None, tool: str, args: dict, *, usdg_out: float | None = None, pays_eth: bool = False,
+               spot_token: str | None = None) -> Result:
         if usdg is not None:
             self._check_caps(usdg)
         note = self._bind() if usdg is not None and self.builder_code else None
@@ -268,6 +322,8 @@ class Broker:
             raise BorroLiveError(prep.get("note") or f"{tool} is not live on Borro")
         max_wei = int(Decimal(str((prep.get("quote") or {}).get("eth_at_most", "0"))).scaleb(18)) if pays_eth else 0
         self._check_prepared(prep, usdg if usdg_out is None else usdg_out, max_wei)
+        if spot_token is not None:
+            self._check_spot(prep, spot_token)
         return self._finish(action, symbol, usdg, tool, prep.get("quote") or {k: prep[k] for k in ("asset", "amount", "mode") if k in prep},
                             prep.get("simulation") or {}, prep["transactions"], note)
 
@@ -299,10 +355,41 @@ class Broker:
                 raise Unsafe("a transaction is malformed or for another chain")
             if int(t.get("value", 0)) > max_wei:
                 raise Unsafe("a transaction sends more ETH than this order's quote")
-            # A USDG approval may never be for more than the order itself (a little over, for rounding).
+            # A USDG approval may never be for more than the order itself (a little over, for rounding): the token's
+            # own approval, and Permit2's allowance of USDG to a spender.
             if usdg_out is not None and t["to"].lower() == USDG.lower() and t["data"].startswith(APPROVE):
                 if int(t["data"][74:138], 16) > int(usdg_out * 1.02 * 1e6) + 10_000:
                     raise Unsafe("a USDG approval is for more than this order")
+            if usdg_out is not None and t["to"].lower() == PERMIT2.lower() and t["data"].startswith(PERMIT2_APPROVE) and t["data"][34:74].lower() == USDG[2:].lower():
+                if int(t["data"][138:202], 16) > int(usdg_out * 1.02 * 1e6) + 10_000:
+                    raise Unsafe("a USDG approval is for more than this order")
+
+    def _check_spot(self, prep: dict, token: str) -> None:
+        """A spot order's steps: the token it spends approved to Permit2, Permit2's allowance of that token for the
+        Universal Router, then the router's swap, in that order and nothing else."""
+        txs = prep["transactions"]
+        last = txs[-1]
+        if last.get("kind") != "call" or last["to"].lower() != UNIVERSAL_ROUTER.lower():
+            raise Unsafe("a spot order must end with a swap on Uniswap's Universal Router")
+        for t in txs[:-1]:
+            to, data = t["to"].lower(), t["data"]
+            token_approval = to == token.lower() and data.startswith(APPROVE) and data[34:74].lower() == PERMIT2[2:].lower()
+            permit_approval = (to == PERMIT2.lower() and data.startswith(PERMIT2_APPROVE) and data[34:74].lower() == token[2:].lower()
+                               and data[98:138].lower() == UNIVERSAL_ROUTER[2:].lower())
+            if t.get("kind") != "approve" or not (token_approval or permit_approval):
+                raise Unsafe("a spot order may only approve the token it spends to Permit2, and Permit2 to Uniswap's Universal Router")
+
+    def _slip(self) -> dict:
+        return {} if self.slip_bps is None else {"slip_bps": self.slip_bps}
+
+    def _need_spot(self) -> None:
+        """Spot orders need Borro's ``buy_stock`` and ``sell_stock`` tools: asked once, refused in words without them."""
+        if self._spot_listed is None:
+            listed = {t.get("name") for t in self.mcp.tools_list()}
+            self._spot_listed = all(name in listed for name in SPOT_TOOLS)
+        if not self._spot_listed:
+            raise SpotUnavailable(f"the MCP server at {self.mcp.url} does not list buy_stock and sell_stock, which this version's buy and sell need: "
+                                  "nothing was sent. short, cover and lend work as before")
 
     # ---- caps --------------------------------------------------------------------------------------------------
 
@@ -400,4 +487,5 @@ class Broker:
         return self._finish("lend", asset, value, "BorroBuilders.deposit", {"asset": asset, "amount": _dec(amount, 6 if stock is None else 18), "builder_code": self.builder_code}, sim, txs, note)
 
 
-__all__ = ["Broker", "Result", "BorroLiveError", "UnlistedTicker", "CapExceeded", "SimulationFailed", "Unsafe", "ChainError", "BORRO_BUILDERS", "USDG"]
+__all__ = ["Broker", "Result", "BorroLiveError", "UnlistedTicker", "CapExceeded", "SimulationFailed", "SpotUnavailable", "Unsafe", "ChainError", "BORRO_BUILDERS", "USDG",
+           "PERMIT2", "UNIVERSAL_ROUTER"]

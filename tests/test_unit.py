@@ -16,11 +16,11 @@ from eth_account import Account  # noqa: E402
 from eth_account.messages import encode_typed_data  # noqa: E402
 from eth_utils import keccak  # noqa: E402
 
-from borro_live import Broker, CapExceeded, ChainError, McpClient, McpError, SimulationFailed, ToolRefused, UnlistedTicker, Unsafe  # noqa: E402
+from borro_live import Broker, CapExceeded, ChainError, McpClient, McpError, SimulationFailed, SpotUnavailable, ToolRefused, UnlistedTicker, Unsafe  # noqa: E402
 from borro_live import ai_hedge_fund as ahf  # noqa: E402
 from borro_live import tradingagents as ta  # noqa: E402
 from borro_live.__main__ import main as cli  # noqa: E402
-from borro_live.broker import BORRO_BUILDERS, USDG, BorroLiveError  # noqa: E402
+from borro_live.broker import BORRO_BUILDERS, PERMIT2, UNIVERSAL_ROUTER, USDG, BorroLiveError  # noqa: E402
 from borro_live.chain import Chain  # noqa: E402
 
 FIX = Path(__file__).parent / "fixtures"
@@ -36,19 +36,24 @@ def fx(name: str) -> dict:
 class FakeMcp:
     """Replays recorded answers by tool name; ``answers`` overrides one, and every call is kept."""
 
-    DEFAULT = {"markets": "markets", "position": "position_all", "open_long": "open_long", "close_long": "close_long", "open_short": "open_short",
-               "close_short": "close_short", "supply": "supply_usdg", "buy_with_eth": "buy_with_eth", "bind_builder": "bind_typed"}
+    DEFAULT = {"markets": "markets", "position": "position_all", "buy_stock": "buy_stock", "sell_stock": "sell_stock", "close_long": "close_long",
+               "open_short": "open_short", "close_short": "close_short", "supply": "supply_usdg", "buy_with_eth": "buy_with_eth", "bind_builder": "bind_typed"}
 
-    def __init__(self, **answers):
+    def __init__(self, without_tools=(), **answers):
         self.answers = answers
+        self.without_tools = set(without_tools)  # tools an older server does not list
         self.calls: list[tuple[str, dict]] = []
+        self.lists = 0
 
     def __call__(self, payload: dict) -> dict:
         m = payload["method"]
         if m == "initialize":
             return fx("initialize")
         if m == "tools/list":
-            return fx("tools_list")
+            self.lists += 1
+            listed = fx("tools_list")
+            listed["result"]["tools"] = [t for t in listed["result"]["tools"] if t["name"] not in self.without_tools]
+            return listed
         name, args = payload["params"]["name"], payload["params"]["arguments"]
         self.calls.append((name, args))
         a = self.answers.get(name, self.DEFAULT.get(name))
@@ -131,7 +136,7 @@ class TestMcpClient(Base):
         c = McpClient(transport=FakeMcp())
         self.assertEqual(c.initialize()["serverInfo"]["name"], "borro")
         tools = {t["name"]: t for t in c.tools_list()}
-        need = {"markets": [], "position": ["wallet"], "open_long": ["wallet", "symbol", "margin", "leverage"], "close_long": ["wallet", "symbol"],
+        need = {"markets": [], "position": ["wallet"], "buy_stock": ["wallet", "symbol", "usdg"], "sell_stock": ["wallet", "symbol"], "close_long": ["wallet", "symbol"],
                 "open_short": ["wallet", "symbol", "amount"], "close_short": ["wallet", "symbol"], "supply": ["wallet", "asset", "amount"],
                 "bind_builder": ["wallet", "code"], "buy_with_eth": ["wallet", "want", "amount"]}
         for name, required in need.items():
@@ -154,13 +159,22 @@ class TestDryRun(Base):
         b = self.broker()
         r = b.buy("nvda", 5)
         self.assertFalse(b.live)
-        self.assertEqual((r.sent, r.ok, r.tool, r.symbol), (False, True, "open_long", "NVDA"))
-        self.assertEqual([t["kind"] for t in r.transactions], ["approve", "authorize", "call"])
+        self.assertEqual((r.sent, r.ok, r.tool, r.symbol), (False, True, "buy_stock", "NVDA"))
+        self.assertEqual([(t["kind"], t["to"]) for t in r.transactions], [("approve", USDG), ("approve", PERMIT2), ("call", UNIVERSAL_ROUTER)])
         self.assertEqual(r.simulation["method"], "eth_simulateV1")
         self.assertEqual(r.hashes, [])
         self.assertEqual(self.chain.sent, [])
-        self.assertEqual(self.mcp.calls[-1], ("open_long", {"wallet": ME, "symbol": "NVDA", "margin": "5", "leverage": 1.01}))
+        self.assertEqual(self.mcp.calls[-1], ("buy_stock", {"wallet": ME, "symbol": "NVDA", "usdg": "5"}))  # a plain spot order: no leverage, no loan
+        self.assertEqual((r.quote["usdg_in"], r.quote["fee_usdg"], r.quote["fee_bps"]), ("5.0", "0.05", 100))  # Borro's fee is in the quote
         self.assertEqual(b.spent_today(), 0)
+
+    def test_a_dry_sell_is_a_spot_sale_of_what_the_wallet_holds(self):
+        r = self.broker().sell("NVDA")
+        self.assertEqual((r.sent, r.ok, r.tool, r.action), (False, True, "sell_stock", "sell"))
+        self.assertEqual(self.mcp.calls[-1], ("sell_stock", {"wallet": ME, "symbol": "NVDA", "all": True}))
+        token = fx("markets")["result"]["structuredContent"]["stocks"][2]["contracts"]["token"]
+        self.assertEqual([(t["kind"], t["to"]) for t in r.transactions], [("approve", token), ("approve", PERMIT2), ("call", UNIVERSAL_ROUTER)])
+        self.assertEqual(self.chain.sent, [])
 
     def test_a_dry_run_needs_no_key_and_no_rpc(self):
         b = Broker(wallet=ME, mcp=McpClient(transport=FakeMcp()), state_path=self.state)
@@ -242,33 +256,95 @@ class TestSafety(Base):
         self.assertEqual(b.spent_today(), 0)
 
     def test_a_simulation_that_does_not_cover_every_step_is_never_sent(self):
-        prep = fx("open_long")
+        prep = fx("buy_stock")
         prep["result"]["structuredContent"]["simulation"]["steps"].pop()
         with self.assertRaises(SimulationFailed):
-            self.broker(live=True, mcp=FakeMcp(open_long=prep)).buy("NVDA", 5)
+            self.broker(live=True, mcp=FakeMcp(buy_stock=prep)).buy("NVDA", 5)
         self.assertEqual(self.chain.sent, [])
 
     def test_transactions_for_another_wallet_chain_or_with_eth_are_refused(self):
         def bent(change):
-            prep = fx("open_long")
+            prep = fx("buy_stock")
             change(prep["result"]["structuredContent"])
             return prep
         cases = [lambda s: s.update({"from": "0x" + "11" * 20}), lambda s: s.update(chainId=1), lambda s: s["transactions"][2].update(chainId=1),
                  lambda s: s["transactions"][2].update(value="1"), lambda s: s.update(transactions=[])]
         for change in cases:
-            b = self.broker(live=True, mcp=FakeMcp(open_long=bent(change)))
+            b = self.broker(live=True, mcp=FakeMcp(buy_stock=bent(change)))
             with self.assertRaises(Unsafe):
                 b.buy("NVDA", 5)
             self.assertEqual(self.chain.sent, [])
 
     def test_a_usdg_approval_over_the_order_is_refused(self):
-        prep = fx("open_long")
+        prep = fx("buy_stock")
         t = prep["result"]["structuredContent"]["transactions"][0]
         self.assertEqual(t["to"], USDG)
         t["data"] = t["data"][:74] + "f" * 64 + t["data"][138:]
         with self.assertRaisesRegex(Unsafe, "approval"):
-            self.broker(live=True, mcp=FakeMcp(open_long=prep)).buy("NVDA", 5)
+            self.broker(live=True, mcp=FakeMcp(buy_stock=prep)).buy("NVDA", 5)
         self.assertEqual(self.chain.sent, [])
+        prep = fx("buy_stock")  # Permit2's allowance of USDG for the router, for more than the order
+        t = prep["result"]["structuredContent"]["transactions"][1]
+        self.assertEqual(t["to"], PERMIT2)
+        t["data"] = t["data"][:138] + "0" * 24 + "f" * 40 + t["data"][202:]
+        with self.assertRaisesRegex(Unsafe, "approval"):
+            self.broker(live=True, mcp=FakeMcp(buy_stock=prep)).buy("NVDA", 5)
+        self.assertEqual(self.chain.sent, [])
+
+    def test_a_spot_order_may_only_approve_its_token_to_permit2_and_swap_on_the_router(self):
+        other = "11" * 20
+
+        def bent(tool, change):
+            prep = fx(tool)
+            change(prep["result"]["structuredContent"]["transactions"])
+            return prep
+        cases = [
+            lambda t: t[0].update(data=t[0]["data"][:34] + other + t[0]["data"][74:]),      # the token approved to someone else
+            lambda t: t[1].update(data=t[1]["data"][:98] + other + t[1]["data"][138:]),     # Permit2 told to let someone else take it
+            lambda t: t[1].update(data=t[1]["data"][:34] + other + t[1]["data"][74:]),      # Permit2's allowance for another token
+            lambda t: t[2].update(to="0x" + other),                                         # the swap sent somewhere else
+            lambda t: t[2].update(kind="approve"),
+            lambda t: t.insert(0, {**t[0], "to": "0x" + other}),                            # an approval on a token this order does not spend
+            lambda t: t.append(dict(t[0])),                                                 # an approval after the swap
+        ]
+        for tool, order in (("buy_stock", lambda b: b.buy("NVDA", 5)), ("sell_stock", lambda b: b.sell("NVDA"))):
+            for i, change in enumerate(cases):
+                b = self.broker(live=True, mcp=FakeMcp(**{tool: bent(tool, change)}))
+                with self.assertRaises(Unsafe, msg=f"{tool} case {i}"):
+                    order(b)
+                self.assertEqual(self.chain.sent, [])
+
+    def test_buy_and_sell_need_the_spot_tools_and_say_so_when_the_server_has_none(self):
+        b = self.broker(live=True, mcp=FakeMcp(without_tools=("buy_stock", "sell_stock")))
+        for order in (lambda: b.buy("NVDA", 5), lambda: b.sell("NVDA"), lambda: b.sell("NVDA", shares=0.01)):
+            with self.assertRaisesRegex(SpotUnavailable, "does not list buy_stock and sell_stock.*nothing was sent"):
+                order()
+        self.assertEqual((set(self.mcp.names()), self.mcp.lists, self.chain.sent, b.spent_today()), ({"markets"}, 1, [], 0))  # asked once, nothing built
+        self.assertTrue(issubclass(SpotUnavailable, BorroLiveError))
+        self.assertTrue(b.short("NVDA", 5).sent)  # the other orders do not need them
+        with self.assertRaises(SpotUnavailable):
+            ahf.BorroBroker(self.broker(live=True, mcp=FakeMcp(without_tools=("buy_stock",)), max_order_usdg=1000, max_day_usdg=1000)).place_order(order_of("NVDA", "buy", 1))
+        ok = self.broker()
+        ok.buy("NVDA", 5), ok.sell("NVDA"), ok.buy("NVDA", 5)
+        self.assertEqual(self.mcp.lists, 1)  # a server that lists them is asked once
+
+    def test_spot_orders_that_are_not_live_on_borro_are_refused_in_borros_words(self):
+        off = {"jsonrpc": "2.0", "id": 1, "result": {"content": [], "structuredContent": {"live": False, "note": "Spot buys and sells are not live on Borro yet."}}}
+        b = self.broker(live=True, mcp=FakeMcp(buy_stock=off, sell_stock=off))
+        for order in (lambda: b.buy("NVDA", 5), lambda: b.sell("NVDA")):
+            with self.assertRaisesRegex(BorroLiveError, "not live on Borro yet"):
+                order()
+        self.assertEqual((self.chain.sent, b.spent_today()), ([], 0))
+
+    def test_slip_bps_is_passed_on_and_checked(self):
+        b = self.broker(slip_bps=100)
+        b.buy("NVDA", 5)
+        self.assertEqual(self.mcp.calls[-1][1], {"wallet": ME, "symbol": "NVDA", "usdg": "5", "slip_bps": 100})
+        b.sell("NVDA")
+        self.assertEqual(self.mcp.calls[-1][1], {"wallet": ME, "symbol": "NVDA", "all": True, "slip_bps": 100})
+        for bad in (0, 501, 1.5, True):
+            with self.assertRaisesRegex(BorroLiveError, "slip_bps"):
+                self.broker(slip_bps=bad)
 
     def test_the_key_and_the_rpc_address_are_never_shown(self):
         b = self.broker(live=True)
@@ -294,7 +370,7 @@ class TestLive(Base):
     def test_a_live_buy_signs_and_sends_each_step_in_order(self):
         b = self.broker(live=True)
         r = b.buy("NVDA", 5)
-        prep = fx("open_long")["result"]["structuredContent"]["transactions"]
+        prep = fx("buy_stock")["result"]["structuredContent"]["transactions"]
         self.assertTrue(r.sent and r.ok and r.live)
         self.assertEqual(len(self.chain.sent), 3)
         self.assertEqual(r.hashes, [s["hash"] for s in self.chain.sent])
@@ -340,15 +416,36 @@ class TestLive(Base):
 
     def test_sell_cover_and_lend_map_to_their_tools(self):
         b = self.broker(live=True)
-        self.assertEqual(b.sell("NVDA", 50).tool, "close_long")
+        held = fx("position_all")["result"]["structuredContent"]["stocks"][0]["in_wallet"]
+        self.assertEqual(b.held("nvda"), held)
+        self.assertEqual(b.sell("NVDA", 50).tool, "sell_stock")  # half of what the wallet holds, in shares
+        self.assertEqual(self.mcp.calls[-1][0], "sell_stock")
+        self.assertEqual(set(self.mcp.calls[-1][1]), {"wallet", "symbol", "amount"})
+        self.assertAlmostEqual(float(self.mcp.calls[-1][1]["amount"]), held / 2, places=15)
+        b.sell("NVDA", shares=0.01)
+        self.assertEqual(self.mcp.calls[-1], ("sell_stock", {"wallet": ME, "symbol": "NVDA", "amount": "0.01"}))
+        r = b.sell("NVDA")
+        self.assertEqual(self.mcp.calls[-1], ("sell_stock", {"wallet": ME, "symbol": "NVDA", "all": True}))
+        self.assertEqual((r.sent, len(r.hashes), r.usdg), (True, 3, None))
+        self.assertEqual(b.close_long("NVDA", 50).tool, "close_long")  # a leveraged long, as buy opened before 0.2.0
         self.assertEqual(self.mcp.calls[-1], ("close_long", {"wallet": ME, "symbol": "NVDA", "percent": 50.0}))
         self.assertEqual(b.cover("NVDA").tool, "close_short")
         self.assertEqual(self.mcp.calls[-1], ("close_short", {"wallet": ME, "symbol": "NVDA"}))
         r = b.lend("USDG", 5)
         self.assertEqual((r.tool, r.sent, len(r.hashes)), ("supply", True, 2))
         self.assertEqual(self.mcp.calls[-1], ("supply", {"wallet": ME, "asset": "USDG", "amount": "5"}))
-        with self.assertRaisesRegex(BorroLiveError, "percent"):
-            b.sell("NVDA", 0)
+        for bad in (lambda: b.sell("NVDA", 0), lambda: b.sell("NVDA", 101), lambda: b.close_long("NVDA", 0)):
+            with self.assertRaisesRegex(BorroLiveError, "percent"):
+                bad()
+        with self.assertRaisesRegex(BorroLiveError, "shares must be more than 0"):
+            b.sell("NVDA", shares=0)
+
+    def test_a_part_sale_of_a_stock_the_wallet_does_not_hold_is_refused_before_borro_is_asked(self):
+        b = self.broker(live=True)
+        with self.assertRaisesRegex(BorroLiveError, "the wallet holds no TSLA to sell"):
+            b.sell("TSLA", 50)
+        self.assertNotIn("sell_stock", self.mcp.names())
+        self.assertEqual(self.chain.sent, [])
 
     def test_a_lend_borro_cut_to_the_balance_says_so(self):
         prep = fx("supply_usdg")
@@ -368,7 +465,9 @@ class TestLive(Base):
     def test_positions(self):
         p = self.broker().positions()
         self.assertEqual(p["wallet"], ME)
-        self.assertEqual([x["symbol"] for x in p["longs"]], ["NVDA"])
+        self.assertEqual([(x["symbol"], x["shares"]) for x in p["holdings"]], [("NVDA", 0.030666928810419228)])  # the stock token in the wallet itself
+        self.assertAlmostEqual(p["holdings"][0]["value_usd"], 0.030666928810419228 * 160.68195761, places=6)
+        self.assertEqual([x["symbol"] for x in p["longs"]], ["NVDA"])  # a leveraged long is listed apart: buy does not open one
         self.assertEqual([(x["symbol"], x["owed_stock"] > 0) for x in p["shorts"]], [("NVDA", True)])
         self.assertAlmostEqual(p["lent_usdg"], 5, places=3)
         self.assertGreater(p["usdg"], 0)
@@ -483,19 +582,31 @@ class TestTradingAgents(Base):
             self.assertEqual(ta.rating_of(raw), want, raw)
 
     def test_each_rating_with_no_position(self):
-        # the recorded open_long approves 5 USDG, so Overweight (half the size) is asked with 10
-        for rating, size, want in [("Buy", 5, [("open_long", "5")]), ("Overweight", 10, [("open_long", "5")]), ("Hold", 5, []), ("Underweight", 5, []), ("Sell", 5, []), ("REVIEW", 5, [])]:
+        # the recorded buy_stock approves 5 USDG, so Overweight (half the size) is asked with 10
+        for rating, size, want in [("Buy", 5, [("buy_stock", "5")]), ("Overweight", 10, [("buy_stock", "5")]), ("Hold", 5, []), ("Underweight", 5, []), ("Sell", 5, []), ("REVIEW", 5, [])]:
             b = self.broker(mcp=FakeMcp(**self.FLAT))
             out = ta.execute(b, "NVDA", rating, usdg=size)
-            self.assertEqual([(r.tool, self.mcp.calls[-1][1].get("margin")) for r in out], want, rating)
+            self.assertEqual([(r.tool, self.mcp.calls[-1][1].get("usdg")) for r in out], want, rating)
 
-    def test_each_rating_with_a_long_and_a_short_open(self):
+    def test_each_rating_with_the_stock_held_and_a_short_open(self):
         b = self.broker()
-        self.assertEqual([r.tool for r in ta.execute(b, "NVDA", "Buy")], ["close_short", "open_long"])
-        ta.execute(b, "NVDA", "Underweight")
-        self.assertEqual(self.mcp.calls[-1], ("close_long", {"wallet": ME, "symbol": "NVDA", "percent": 50.0}))
+        held = b.held("NVDA")
+        self.assertEqual([r.tool for r in ta.execute(b, "NVDA", "Buy")], ["close_short", "buy_stock"])
+        self.assertEqual([r.tool for r in ta.execute(b, "NVDA", "Underweight")], ["sell_stock"])
+        self.assertAlmostEqual(float(self.mcp.calls[-1][1]["amount"]), held / 2, places=15)  # half of what the wallet holds
         ta.execute(b, "NVDA", "SELL")
-        self.assertEqual(self.mcp.calls[-1][1]["percent"], 100.0)
+        self.assertEqual(self.mcp.calls[-1], ("sell_stock", {"wallet": ME, "symbol": "NVDA", "all": True}))
+
+    def test_a_leveraged_long_alone_is_not_something_to_sell(self):
+        # a wallet with a long opened before 0.2.0 and no stock in the wallet: Sell has nothing to sell
+        def flat(args):
+            a = fx("position_all")
+            del a["result"]["structuredContent"]["stocks"][0]["in_wallet"]
+            return a
+        b = self.broker(mcp=FakeMcp(position=flat))
+        self.assertEqual([p["symbol"] for p in b.positions()["longs"]], ["NVDA"])
+        self.assertEqual(ta.execute(b, "NVDA", "Sell"), [])
+        self.assertNotIn("sell_stock", self.mcp.names())
 
     def test_sell_shorts_only_when_asked(self):
         b = self.broker(mcp=FakeMcp(**self.FLAT))
@@ -528,28 +639,31 @@ class TestAiHedgeFund(Base):
     def test_decisions_map_to_orders_and_one_refusal_stops_nothing(self):
         b = self.broker(max_order_usdg=10)
         out = ahf.execute_decisions(b, {"decisions": self.DECISIONS, "analyst_signals": {}}, scale=0.01)
-        self.assertEqual(out["NVDA"].tool, "open_long")
+        self.assertEqual(out["NVDA"].tool, "buy_stock")
         self.assertAlmostEqual(out["NVDA"].usdg, 0.03 * b.price("NVDA"), places=6)
         self.assertEqual(out["TSLA"].tool, "open_short")
         self.assertIsNone(out["SPY"])
         self.assertIn("refused: DOGE is not on Borro", out["DOGE"])
-        self.assertIn("refused: no long on QQQ", out["QQQ"])
+        self.assertIn("refused: the wallet holds no QQQ to sell", out["QQQ"])
 
     def test_whole_shares_meet_the_cap(self):
         out = ahf.execute_decisions(self.broker(), {"NVDA": {"action": "buy", "quantity": 3}})
         self.assertIn("refused", out["NVDA"])
         self.assertIn("per-order cap", out["NVDA"])
 
-    def test_sell_is_a_share_of_the_long_and_cover_closes_the_short(self):
+    def test_sell_is_shares_the_wallet_holds_and_cover_closes_the_short(self):
         b = self.broker()
-        held = ahf._long_shares(b.positions(), "NVDA")
+        held = ahf._held_shares(b.positions(), "NVDA")
+        self.assertGreater(held, 0)
 
         class D:  # a decision object, as the portfolio manager's pydantic model
             def __init__(self, action, quantity):
                 self.action, self.quantity = action, quantity
         out = ahf.execute_decisions(b, {"NVDA": D("sell", held / 4)})
-        self.assertEqual(out["NVDA"].tool, "close_long")
-        self.assertAlmostEqual(self.mcp.calls[-1][1]["percent"], 25, places=1)
+        self.assertEqual(out["NVDA"].tool, "sell_stock")
+        self.assertAlmostEqual(float(self.mcp.calls[-1][1]["amount"]), held / 4, places=15)
+        ahf.execute_decisions(b, {"NVDA": D("sell", 10)})  # more than it holds: everything it holds
+        self.assertEqual(self.mcp.calls[-1], ("sell_stock", {"wallet": ME, "symbol": "NVDA", "all": True}))
         self.assertEqual(ahf.execute_decisions(b, {"NVDA": D("cover", 0)})["NVDA"].tool, "close_short")
         self.assertIn("unknown action", ahf.execute_decisions(b, {"NVDA": D("yolo", 1)})["NVDA"])
 
@@ -558,19 +672,28 @@ class Desk:
     """A made-up wallet on a made-up Borro, answering the five tools the engine's broker uses in the shapes recorded
     from the real server. An order changes the book only once its transactions were sent through ``chain``."""
 
-    def __init__(self, usdg=1000.0, longs=None, shorts=None, fail_sim=False, shortfall=0.0, windfall=0.0):
-        self.usdg, self.longs, self.shorts = usdg, dict(longs or {}), dict(shorts or {})  # longs: [posted, owed]; shorts: [owed stock, held]
+    FEE = 0.01  # Borro's fee on a spot swap, taken from the USDG
+
+    def __init__(self, usdg=1000.0, held=None, shorts=None, longs=None, fail_sim=False, shortfall=0.0, windfall=0.0):
+        # held: stock tokens in the wallet; shorts: [owed stock, held USDG]; longs: leveraged longs, [posted stock, owed USDG]
+        self.usdg, self.held, self.shorts, self.longs = usdg, dict(held or {}), dict(shorts or {}), dict(longs or {})
         self.fail_sim, self.shortfall, self.windfall = fail_sim, shortfall, windfall  # windfall: USDG that lands in the wallet beside an order
-        self.price = {x["symbol"]: x["price_usd"] for x in fx("markets")["result"]["structuredContent"]["stocks"]}
+        stocks = fx("markets")["result"]["structuredContent"]["stocks"]
+        self.price = {x["symbol"]: x["price_usd"] for x in stocks}
+        self.token = {x["symbol"]: x["contracts"]["token"] for x in stocks}
         self.chain, self._seen, self._pending = None, 0, None
 
     def answers(self):
-        return {"position": self.position, "open_long": self.open_long, "close_long": self.close_long, "open_short": self.open_short, "close_short": self.close_short}
+        return {"position": self.position, "buy_stock": self.buy_stock, "sell_stock": self.sell_stock, "open_short": self.open_short, "close_short": self.close_short}
 
-    def _answer(self, name, quote, then):
+    def _answer(self, name, quote, then, token=None):
         self._pending = then
         a = fx(name)
         a["result"]["structuredContent"]["quote"] = quote
+        if token:  # the recorded sale is NVDA's: the same steps for the stock asked for
+            t = a["result"]["structuredContent"]["transactions"]
+            t[0]["to"] = token
+            t[1]["data"] = t[1]["data"][:34] + token[2:].lower() + t[1]["data"][74:]
         if self.fail_sim:
             a["result"]["structuredContent"]["simulation"]["ok"] = False
         return a
@@ -589,39 +712,42 @@ class Desk:
         s["wallet_balances"]["usdg"] = round(self.usdg, 6)
         s["leveraged_longs"] = [{"symbol": k, "size_usdg": v[0] * self.price[k], "owed_usdg": v[1]} for k, v in self.longs.items()]
         s["stocks"] = [{"symbol": k, "price_usd": self.price[k],
+                        **({"in_wallet": self.held[k]} if self.held.get(k) else {}),
                         **({"usdg_loan": {"posted_stock": self.longs[k][0], "owed_usdg": self.longs[k][1]}} if k in self.longs else {}),
                         **({"short": {"owed_stock": self.shorts[k][0], "owed_usd": self.shorts[k][0] * self.price[k], "held_usdg": self.shorts[k][1]}} if k in self.shorts else {})}
-                       for k in sorted(set(self.longs) | set(self.shorts))]
+                       for k in sorted(set(self.held) | set(self.longs) | set(self.shorts))]
         return a
 
-    def open_long(self, args):
-        sym, margin, lev = args["symbol"], float(args["margin"]), float(args["leverage"])
-        if margin > self.usdg:
-            return self._refuse(f"the wallet holds {self.usdg} USDG, less than the margin")
-        debt, pool = margin * (lev - 1), self.price[sym] * 1.002  # the pool sits a little over Borro's price
-        stock = (margin + debt) * 0.995 / pool                    # Borro buys an exact amount and hands the unspent margin back
+    def buy_stock(self, args):
+        sym, usdg = args["symbol"], float(args["usdg"])
+        if usdg > self.usdg:
+            return self._refuse(f"the wallet holds {self.usdg} USDG, less than the USDG to spend")
+        pool = self.price[sym] * 1.002           # the pool sits a little over Borro's price
+        stock = usdg * (1 - self.FEE) / pool     # all the USDG is spent: the fee, then the swap
 
         def then():
-            got = stock * (1 - self.shortfall)
-            posted, owed = self.longs.get(sym, [0.0, 0.0])
-            self.longs[sym] = [posted + got, owed + debt]
-            self.usdg -= stock * pool - debt
-        return self._answer("open_long", {"margin_usdg": args["margin"], "leverage": lev, "stock": repr(stock), "size_usdg": repr(stock * self.price[sym]), "debt_usdg": repr(debt)}, then)
+            self.held[sym] = self.held.get(sym, 0.0) + stock * (1 - self.shortfall)
+            self.usdg -= usdg
+        return self._answer("buy_stock", {"usdg_in": args["usdg"], "stock": repr(stock), "least_accepted_stock": repr(stock * 0.995), "fee_usdg": repr(usdg * self.FEE), "fee_bps": 100}, then)
 
-    def close_long(self, args):
-        sym, share = args["symbol"], float(args.get("percent", 100)) / 100
-        if sym not in self.longs:
-            return self._refuse(f"this wallet has no leveraged long on {sym}")
-        posted, owed = self.longs[sym]
-        back = posted * share * self.price[sym] * 0.998 - owed * share
+    def sell_stock(self, args):
+        sym, have = args["symbol"], self.held.get(args["symbol"], 0.0)
+        if not have > 0:
+            return self._refuse(f"this wallet holds no {sym} to sell")
+        shares = have if args.get("all") else float(args["amount"])
+        if shares > have:
+            return self._refuse(f"the wallet holds {have} {sym}, less than the amount")
+        sale = shares * self.price[sym] * 0.998  # the pool pays a little under Borro's price
+        net = sale * (1 - self.FEE)
 
         def then():
-            self.usdg += back
-            if share == 1:
-                del self.longs[sym]
+            self.usdg += net
+            if shares == have:
+                del self.held[sym]
             else:
-                self.longs[sym] = [posted * (1 - share), owed * (1 - share)]
-        return self._answer("close_long", {"back_usdg": repr(back), "owed_usdg": repr(owed), "equity_usdg": repr(posted * self.price[sym] - owed)}, then)
+                self.held[sym] = have - shares
+        return self._answer("sell_stock", {"stock_in": repr(shares), "sale_usdg": repr(sale), "after_fee_usdg": repr(net), "least_accepted_usdg": repr(net * 0.995), "fee_usdg": repr(sale * self.FEE), "fee_bps": 100},
+                            then, token=self.token[sym])
 
     def open_short(self, args):
         sym, amount, deposit = args["symbol"], float(args["amount"]), float(args.get("deposit", 0))
@@ -649,6 +775,9 @@ def order(ticker, side, quantity):
     return {"ticker": ticker, "side": side, "quantity": quantity, "price": 1.0}
 
 
+order_of = order
+
+
 class TestEngineBroker(Base):
     """BorroBroker, ai-hedge-fund's v2 ``Broker`` protocol."""
 
@@ -660,52 +789,63 @@ class TestEngineBroker(Base):
         return ahf.BorroBroker(b, simulate_fills=simulate_fills)
 
     def test_whole_shares_and_cash_counted_as_the_engine_counts_them(self):
-        b = self.desk(usdg=500.0, longs={"NVDA": [2.0004, 3.4]}, shorts={"TSLA": [1.0000001, 760.0]})
+        b = self.desk(usdg=500.0, held={"NVDA": 2.0004}, shorts={"TSLA": [1.0000001, 760.0]})
         self.assertEqual({k: (v.ticker, v.shares) for k, v in b.positions().items()}, {"NVDA": ("NVDA", 2), "TSLA": ("TSLA", -1)})
-        self.assertAlmostEqual(b.cash(), 500.0 - 3.4 + 760.0, places=6)  # the wallet, less the loans under the longs, plus the money held for the shorts
+        self.assertAlmostEqual(b.cash(), 500.0 + 760.0, places=6)  # the wallet, plus the money held for the shorts; a stock in the wallet owes nothing
         self.assertEqual(self.mcp.names(), ["position"])  # one read served both
         self.assertEqual(b.exact(), {"shares": {"NVDA": 2.0004, "TSLA": -1.0000001}, "cash": b.cash()})
         self.assertEqual(self.mcp.names(), ["position", "position"])
         b._seen = (b._seen[0] - 60, b._seen[1])  # a read is kept for seconds, not for the next session
         b.cash()
         self.assertEqual(self.mcp.names(), ["position"] * 3)
-        self.assertEqual(self.desk(usdg=7.0, longs={"NVDA": [0.004, 0.01]}).positions(), {})  # under half a share is no row
+        self.assertEqual(self.desk(usdg=7.0, held={"NVDA": 0.004}).positions(), {})  # under half a share is no row
 
-    def test_a_long_and_a_short_on_one_stock_net(self):
-        b = self.desk(longs={"NVDA": [3.0, 5.0]}, shorts={"NVDA": [1.0, 340.0]})
+    def test_a_holding_and_a_short_on_one_stock_net(self):
+        b = self.desk(held={"NVDA": 3.0}, shorts={"NVDA": [1.0, 340.0]})
         self.assertEqual(b.positions()["NVDA"].shares, 2)
+
+    def test_a_leveraged_long_is_outside_the_book(self):
+        # opened before 0.2.0 (a buy was a long at 1.01x then) or elsewhere: neither its stock nor its loan is counted
+        b = self.desk(usdg=500.0, longs={"NVDA": [2.0, 3.4]})
+        self.assertEqual((b.positions(), b.cash()), ({}, 500.0))
+        self.assertEqual([p["symbol"] for p in b.broker.positions()["longs"]], ["NVDA"])  # the broker still lists it, for close_long
 
     def test_a_live_buy_gains_the_whole_count_and_is_priced_by_the_cash_it_moved(self):
         b = self.desk()
         before = b.cash()
         fill = b.place_order(order("nvda", "buy", 3))
-        self.assertEqual(self.mcp.names(), ["position", "markets", "position", "open_long", "open_long", "position"])
-        first, second = (c[1] for c in self.mcp.calls if c[0] == "open_long")
-        self.assertAlmostEqual(float(first["margin"]), 3 * self.d.price["NVDA"] / 1.01, places=5)
-        self.assertNotEqual(first["margin"], second["margin"])  # scaled by what the first quote said the margin buys
-        self.assertAlmostEqual(self.d.longs["NVDA"][0], 3, places=6)
+        self.assertEqual(self.mcp.names(), ["position", "markets", "position", "buy_stock", "buy_stock", "position"])
+        first, second = (c[1] for c in self.mcp.calls if c[0] == "buy_stock")
+        self.assertAlmostEqual(float(first["usdg"]), 3 * self.d.price["NVDA"], places=5)
+        self.assertNotEqual(first["usdg"], second["usdg"])  # scaled by what the first quote said the USDG buys
+        self.assertAlmostEqual(self.d.held["NVDA"], 3, places=6)
         self.assertEqual((fill.ticker, fill.side, fill.quantity), ("NVDA", "buy", 3))
         self.assertAlmostEqual(fill.price, (before - b.cash()) / 3, places=9)
-        self.assertAlmostEqual(fill.price, self.d.price["NVDA"] * 1.002, places=3)  # the pool's price, not Borro's and not the order's
+        self.assertAlmostEqual(fill.price, self.d.price["NVDA"] * 1.002 / 0.99, places=3)  # the pool's price with Borro's fee in it, not the order's
         self.assertEqual(b.positions()["NVDA"].shares, 3)
         self.assertTrue(b.results[0].sent and len(self.chain.sent) == 3)
-        self.assertAlmostEqual(b.cash(), self.d.usdg - self.d.longs["NVDA"][1], places=6)
-
-    def test_a_live_sell_is_a_share_of_the_long_and_the_last_shares_close_it(self):
-        b = self.desk(longs={"NVDA": [3.0001, 5.0]})
-        before = b.cash()
-        fill = b.place_order(order("NVDA", "sell", 1))
-        self.assertEqual(self.mcp.calls[-2], ("close_long", {"wallet": ME, "symbol": "NVDA", "percent": 33.33}))
-        self.assertAlmostEqual(fill.price, b.cash() - before, places=9)
-        self.assertEqual(b.positions()["NVDA"].shares, 2)
-        b.place_order(order("NVDA", "sell", 2))
-        self.assertEqual(self.mcp.calls[-2][1]["percent"], 100)  # not 99.99: nothing is left behind
-        self.assertEqual((b.positions(), self.d.longs), ({}, {}))
+        self.assertEqual((self.d.longs, self.d.shorts), ({}, {}))  # nothing lent, posted or borrowed
         self.assertAlmostEqual(b.cash(), self.d.usdg, places=6)
 
+    def test_a_live_sell_sells_the_count_and_the_last_whole_shares_sell_everything_held(self):
+        b = self.desk(held={"NVDA": 3.0001})
+        before = b.cash()
+        fill = b.place_order(order("NVDA", "sell", 1))
+        self.assertEqual(self.mcp.calls[-2], ("sell_stock", {"wallet": ME, "symbol": "NVDA", "amount": "1"}))
+        self.assertAlmostEqual(fill.price, b.cash() - before, places=9)
+        self.assertAlmostEqual(fill.price, self.d.price["NVDA"] * 0.998 * 0.99, places=6)  # the sale after Borro's fee, per share
+        self.assertEqual(b.positions()["NVDA"].shares, 2)
+        b.place_order(order("NVDA", "sell", 2))
+        self.assertEqual(self.mcp.calls[-2], ("sell_stock", {"wallet": ME, "symbol": "NVDA", "all": True}))  # the 0.0001 goes too: nothing is left behind
+        self.assertEqual((b.positions(), self.d.held), ({}, {}))
+        self.assertAlmostEqual(b.cash(), self.d.usdg, places=6)
+        under = self.desk(held={"NVDA": 1.9998})  # a hair under two whole shares is still two: selling both sells what is there
+        under.place_order(order("NVDA", "sell", 2))
+        self.assertEqual((self.mcp.calls[-2][1].get("all"), under.positions()), (True, {}))
+
     def test_orders_borro_cannot_fill_whole_are_refused_before_anything_is_asked(self):
-        b = self.desk(longs={"NVDA": [300.0, 500.0]}, shorts={"TSLA": [3.0, 2300.0]})
-        for o, why in ((order("NVDA", "sell", 1), "at least 1% of a long"), (order("NVDA", "sell", 301), "sell the 300 NVDA held first, then short"),
+        b = self.desk(held={"NVDA": 300.0}, shorts={"TSLA": [3.0, 2300.0]})
+        for o, why in ((order("NVDA", "sell", 301), "sell the 300 NVDA held first, then short"),
                        (order("TSLA", "buy", 1), "closes a short whole: buy 3 TSLA"), (order("TSLA", "buy", 4), "closes a short whole"),
                        (order("NVDA", "hold", 1), "buy or sell"), (order("NVDA", "buy", 0), "at least one share")):
             with self.assertRaisesRegex(BorroLiveError, why):
@@ -714,6 +854,11 @@ class TestEngineBroker(Base):
             b.place_order(order("DOGE", "buy", 1))
         self.assertTrue(set(self.mcp.names()) <= {"position", "markets"})
         self.assertEqual((self.chain.sent, b.results), ([], []))
+
+    def test_one_share_of_three_hundred_sells_with_no_minimum(self):
+        b = self.desk(held={"NVDA": 300.0})
+        b.place_order(order("NVDA", "sell", 1))  # a long at 1.01x could not close under 1% of itself; a spot sale has no such floor
+        self.assertEqual(b.positions()["NVDA"].shares, 299)
 
     def test_a_live_short_counts_the_money_borro_holds_and_a_cover_closes_it_whole(self):
         b = self.desk()
@@ -771,7 +916,7 @@ class TestEngineBroker(Base):
         b = self.desk(live=False, simulate_fills=True)
         fill = b.place_order(order("NVDA", "buy", 2))
         q = b.results[0].quote
-        self.assertAlmostEqual(fill.price, (float(q["margin_usdg"]) + float(q["debt_usdg"])) / 2, places=9)  # the most the quote lets the order cost
+        self.assertAlmostEqual(fill.price, float(q["usdg_in"]) / 2, places=9)  # the USDG the order spends, fee and all
         self.assertAlmostEqual(float(q["stock"]), 2, places=6)
         self.assertEqual(b.positions()["NVDA"].shares, 2)
         self.assertAlmostEqual(b.cash(), 1000 - 2 * fill.price, places=9)
@@ -779,7 +924,7 @@ class TestEngineBroker(Base):
         self.assertEqual(sold.price, self.d.price["NVDA"])
         self.assertIn("not simulated", b.results[1].note)
         self.assertFalse(b.results[1].ok or b.results[1].sent)
-        self.assertNotIn("close_long", self.mcp.names())
+        self.assertNotIn("sell_stock", self.mcp.names())
         with self.assertRaisesRegex(BorroLiveError, "sell the 1 NVDA held first"):
             b.place_order(order("NVDA", "sell", 2))
         b.place_order(order("NVDA", "sell", 1))
@@ -798,11 +943,11 @@ class TestEngineBroker(Base):
         self.assertTrue(all(not r.sent and not r.live for r in b.results))
 
     def test_simulated_closes_of_what_the_wallet_really_holds_are_borros_simulations(self):
-        b = self.desk(live=False, simulate_fills=True, longs={"NVDA": [2.0, 3.0]}, shorts={"TSLA": [1.0, 760.0]})
+        b = self.desk(live=False, simulate_fills=True, held={"NVDA": 2.0}, shorts={"TSLA": [1.0, 760.0]})
         sold = b.place_order(order("NVDA", "sell", 1))
-        self.assertEqual(self.mcp.calls[-1], ("close_long", {"wallet": ME, "symbol": "NVDA", "percent": 50.0}))
+        self.assertEqual(self.mcp.calls[-1], ("sell_stock", {"wallet": ME, "symbol": "NVDA", "amount": "1"}))
         q = b.results[0].quote
-        self.assertAlmostEqual(sold.price, float(q["back_usdg"]) + float(q["owed_usdg"]) / 2, places=9)  # what comes back plus the loan it repays
+        self.assertAlmostEqual(sold.price, float(q["after_fee_usdg"]), places=9)  # what the quote says the share brings, Borro's fee taken
         self.assertTrue(b.results[0].ok)
         cover = b.place_order(order("TSLA", "buy", 1))
         self.assertEqual(self.mcp.names()[-1], "close_short")
@@ -818,7 +963,7 @@ class TestEngineBroker(Base):
         self.assertEqual((b.positions(), b.cash()), ({}, 1000.0))
 
     def test_the_engines_own_models_when_it_is_installed(self):
-        b = self.desk(longs={"NVDA": [2.0, 3.0]})
+        b = self.desk(held={"NVDA": 2.0})
         try:
             from hedge_fund.brokers.models import Fill, Order, Position
             from hedge_fund.brokers.protocol import Broker as EngineBroker
@@ -838,11 +983,15 @@ class TestCli(Base):
         out = io.StringIO()
         with mock.patch("borro_live.broker.McpClient", lambda: McpClient(transport=FakeMcp())), contextlib.redirect_stdout(out):
             self.assertEqual(cli(["buy", "NVDA", "5"]), 0)
+            self.assertEqual(cli(["sell", "NVDA"]), 0)
+            self.assertEqual(cli(["close-long", "NVDA", "50"]), 0)
             self.assertEqual(cli(["positions"]), 0)
             self.assertEqual(cli(["buy", "DOGE", "5"]), 1)
             self.assertEqual(cli(["buy", "NVDA", "5", "--live"]), 1)  # the flag without BORRO_LIVE=1
         text = out.getvalue()
         self.assertIn('"sent": false', text)
+        for part in ('"tool": "buy_stock"', '"tool": "sell_stock"', '"tool": "close_long"', '"holdings"'):
+            self.assertIn(part, text)
         self.assertIn("BORRO_LIVE=1", text)
         self.assertNotIn(KEY[2:], text)
 

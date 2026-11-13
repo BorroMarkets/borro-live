@@ -39,8 +39,10 @@ def execute(broker: Broker, ticker: str, decision, usdg: float = 5.0, allow_shor
     Buy          cover a short if there is one, then buy ``usdg`` worth
     Overweight   the same, half the size
     Hold         nothing
-    Underweight  sell half of the long, if there is one
-    Sell         sell all of the long; with ``allow_short`` and no long, short ``usdg`` worth instead
+    Underweight  sell half of the stock the wallet holds, if it holds any
+    Sell         sell all of it; with ``allow_short`` and none held, short ``usdg`` worth instead
+
+    A buy and a sell are plain spot orders: the stock token is bought into the wallet and sold from it.
     """
     rating = rating_of(decision)
     if rating in (None, "hold"):
@@ -48,7 +50,7 @@ def execute(broker: Broker, ticker: str, decision, usdg: float = 5.0, allow_shor
     symbol = str(ticker).strip().upper()
     broker.price(symbol)  # refuses a ticker Borro does not list, before anything else
     pos = broker.positions()
-    has_long = any(p.get("symbol") == symbol for p in pos["longs"])
+    has_long = any(h.get("symbol") == symbol for h in pos["holdings"])
     has_short = any(p.get("symbol") == symbol for p in pos["shorts"])
     out: list[Result] = []
     if rating in ("buy", "overweight"):

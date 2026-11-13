@@ -2,11 +2,12 @@
 
     python examples/ai_hedge_fund_example.py --decisions decisions.json --scale 0.01
     python examples/ai_hedge_fund_example.py --buy NVDA 3                 one buy decision worth 3 USDG, as a dry run
+                                                                          (a plain spot order: the token lands in the wallet)
     BORRO_LIVE=1 python examples/ai_hedge_fund_example.py --buy NVDA 3 --live
 
 decisions.json is the portfolio manager's output: {"NVDA": {"action": "buy", "quantity": 10}, ...} (or the whole
-run_hedge_fund result, with it under "decisions"). Environment: BORRO_AGENT_KEY, BORRO_RPC_URL, and BORRO_LIVE=1 with
---live to send.
+run_hedge_fund result, with it under "decisions"). A buy and a sell are plain spot orders: USDG for the stock token in
+the wallet, and back. Environment: BORRO_AGENT_KEY, BORRO_RPC_URL, and BORRO_LIVE=1 with --live to send.
 """
 
 import argparse

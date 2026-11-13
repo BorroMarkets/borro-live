@@ -9,7 +9,8 @@
 # It runs a dry run of both orders first and stops if either would fail, asks you to type "send", then:
 #   1. TradingAgents: a Buy decision on NVDA, 3 USDG (borro_live.tradingagents)
 #   2. ai-hedge-fund: a buy decision on SPY worth 3 USDG (borro_live.ai_hedge_fund)
-# and prints every transaction hash and the final positions. CLOSE=1 sells both again at the end.
+# and prints every transaction hash and the final positions. Both are plain spot buys: the stock tokens end up in the
+# wallet. CLOSE=1 sells both again at the end.
 # PYTHON picks the interpreter (it needs borro-live installed, or eth-account with this folder on the path).
 set -euo pipefail
 cd "$(dirname "$0")"
@@ -48,4 +49,4 @@ if [ "${CLOSE:-0}" = "1" ]; then
 fi
 echo "== final positions =="
 "$PYTHON" -m borro_live positions
-echo 'Done. To close later: BORRO_LIVE=1 python -m borro_live sell NVDA --live (and SPY).'
+echo 'Done. To sell later: BORRO_LIVE=1 python -m borro_live sell NVDA --live (and SPY).'

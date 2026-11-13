@@ -65,7 +65,7 @@ class McpClient:
         return res["result"]
 
     def initialize(self) -> dict:
-        return self._rpc("initialize", {"protocolVersion": PROTOCOL, "capabilities": {}, "clientInfo": {"name": "borro-live", "version": "0.1.1"}})
+        return self._rpc("initialize", {"protocolVersion": PROTOCOL, "capabilities": {}, "clientInfo": {"name": "borro-live", "version": "0.2.0"}})
 
     def tools_list(self) -> list[dict]:
         return self._rpc("tools/list")["tools"]

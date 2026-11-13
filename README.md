@@ -16,9 +16,11 @@ package checks the simulation, signs with your agent's own key and sends through
 - **What a stock token is.** A token on Robinhood Chain, issued by Robinhood Assets (Jersey) Limited, whose price
   follows a stock or fund. It is not the share: no vote, no brokerage account, no investor protection scheme. Its price
   on chain can sit away from the stock's, most of all while the stock market is shut.
+- **A buy is a plain spot order.** Your USDG buys the stock token on Uniswap and the token arrives in the agent's own
+  wallet. Nothing is lent and nothing is borrowed, so a buy cannot be liquidated. A sell swaps the token back to USDG.
+  Borro takes a fee on each of the two swaps, out of the USDG, and every quote shows it.
 - **A short can be liquidated.** If the stock rises far enough, Borro closes the short for you at a loss, and the
-  deposit can be lost. A buy here is a long with a small loan against it, and it can be liquidated too if the token
-  falls nearly to zero.
+  deposit can be lost.
 - **It starts as a dry run.** Nothing is sent until you ask for live mode twice: a flag in code and a variable in the
   environment.
 
@@ -44,7 +46,7 @@ Dry run (leave `BORRO_LIVE` out). It prints Borro's simulation of every step and
 
 ```sh
 borro-live tickers
-borro-live buy NVDA 5                 # 5 USDG of NVDA
+borro-live buy NVDA 5                 # a spot buy: 5 USDG of NVDA into the wallet
 borro-live positions
 ```
 
@@ -81,8 +83,8 @@ print(decision, ta.borro_orders, ta.borro_error)
 | Buy | cover a short if there is one, then buy `usdg` worth |
 | Overweight | the same, half the size |
 | Hold, REVIEW | nothing |
-| Underweight | sell half of the long, if there is one |
-| Sell | sell all of the long. With `allow_short=True` and no long, short `usdg` worth instead |
+| Underweight | sell half of the stock the wallet holds, if it holds any |
+| Sell | sell all of it. With `allow_short=True` and none held, short `usdg` worth instead |
 
 Without the graph: `borro_live.tradingagents.execute(broker, "NVDA", "Buy", usdg=5)`. Runnable:
 `python examples/tradingagents_example.py NVDA --decision Buy`.
@@ -101,7 +103,8 @@ results = execute_decisions(Broker.from_env(), result["decisions"], scale=0.01)
 
 `scale` multiplies every quantity, since the model sizes in whole shares for a paper portfolio and the caps here are
 in USDG. Pick it so the largest order lands under your per-order cap (10 USDG unless you raise it): an order over the
-cap is refused, not shrunk. Each ticker gets its own answer; one refusal never stops the others. Runnable:
+cap is refused, not shrunk. A sell sells that many shares of what the wallet holds, or all of it when it holds fewer.
+Each ticker gets its own answer; one refusal never stops the others. Runnable:
 `python examples/ai_hedge_fund_example.py --buy NVDA 3`.
 
 ### The v2 engine
@@ -130,14 +133,18 @@ through x402). `borro-live` gives the engine no market data, and `data_client` a
 
 Treat this adapter as experimental. What it does, and where it stops:
 
-- **Whole shares.** `positions()` is the stock posted under each long, less the stock each short owes, rounded to
-  whole shares. A buy is sized from Borro's quote so the long gains the whole count the engine ordered.
-- **Cash.** `cash()` is the USDG in the wallet, less the USDG owed under the longs (the 1% loan under each buy), plus
-  the USDG Borro holds against the shorts (the sale money and the deposit). A buy of some shares therefore lowers cash
-  by what those shares cost, and a short raises it by the sale after Borro's fee, as the engine's book expects.
+- **Whole shares.** `positions()` is the stock tokens in the wallet, less the stock each short owes, rounded to
+  whole shares. A buy is a spot order sized from Borro's quote so the wallet gains the whole count the engine ordered,
+  to within a small fraction of a share. A sell sells exactly the count, or everything the wallet holds of the stock
+  when the count is all its whole shares, so no fraction is left behind.
+- **Cash.** `cash()` is the USDG in the wallet, plus the USDG Borro holds against the shorts (the sale money and the
+  deposit). A buy of some shares therefore lowers cash by what those shares cost, and a short raises it by the sale
+  after Borro's fee, as the engine's book expects. Stock you lent on Borro, and a leveraged long opened before 0.2.0
+  or elsewhere, are outside this book.
 - **Fills.** When a live order has landed, the book is read again. If it did not move by exactly the order,
   `place_order` raises `FillMismatch` with the transaction hashes. Otherwise the `Fill` carries the price the cash
-  really moved by, per share, so the engine's fills account for its cash.
+  really moved by, per share, so the engine's fills account for its cash. Borro's fee and the pools' fees are in that
+  price: on the fork test a buy filled up to 1.5% over Borro's price and a sell up to 1.5% under it.
 - **Caps.** The engine orders whole shares, and one share of most stocks is worth more than the default 10 USDG
   cap, so set the caps to cover the orders you expect: `Broker(max_order_usdg=..., max_day_usdg=...)`
   or `BORRO_MAX_ORDER_USDG` and `BORRO_MAX_DAY_USDG`. An order over a cap is refused in words that name the order, its
@@ -147,25 +154,24 @@ Treat this adapter as experimental. What it does, and where it stops:
   simulation, which stops the engine's session. With `simulate_fills=True` it returns a simulated `Fill` instead and
   keeps those fills in a paper book in memory, so whole sessions run end to end; `positions()` and `cash()` are then
   the wallet's real book plus the paper one. An order that opens or adds is priced from Borro's simulation of it from
-  your wallet, so the wallet has to hold the USDG (a buy is priced at the most its quote lets it cost, a little over
-  what a live fill pays). An order that closes shares held only on paper cannot be simulated by Borro: it is priced
-  at Borro's price, and its `Result` in `broker.results` says so. The paper book is gone when the process ends.
-- **Refused, never half done.** An order that crosses zero in one step, a buy that covers only part of a short
-  (Borro closes a short whole), and a sell of less than 1% of a long. Each raises, and the engine stops there.
+  your wallet, so the wallet has to hold the USDG (a buy is priced at the USDG it spends, fee included; a sell of
+  stock the wallet really holds at what its quote says it brings after the fee). An order that closes shares held only
+  on paper cannot be simulated by Borro: it is priced at Borro's price, and its `Result` in `broker.results` says so.
+  The paper book is gone when the process ends.
+- **Refused, never half done.** An order that crosses zero in one step, and a buy that covers only part of a short
+  (Borro closes a short whole). Each raises, and the engine stops there.
 - **Leave room.** Borro's price is not the engine's mark. A mandate that targets all of its equity can ask for more
   USDG than the wallet holds, and Borro refuses that buy. The fork test runs at a gross target of 0.9.
 
 **How far the engine's ledger reconciles.** Before each session the engine checks that the broker holds exactly the
 whole shares, and the cash to the cent, that its last record says. A long-only fund on the fork test passed that
 check on four sessions a day apart: a day on, cash was the same to six decimals and every holding was within 0.001
-of a whole share. It cannot hold forever, for three reasons:
+of a whole share. A stock token held in the wallet does not move between sessions: nothing is lent and nothing is
+owed. Two things still break the check:
 
-- The stock under a long is lent, so it earns lending fees in stock, and the loan under it accrues a borrow fee.
-  Both are small and both move the book between sessions. The check fails once cash has moved a cent or a holding
-  has moved past half a share.
-- The USDG Borro holds against a short earns interest. On the fork, one share of MSTR short (about 236 USDG held)
-  earned about 0.033 USDG in a day, which is over the cent, so a short carried to the next session raises the engine's
-  `BookMismatch`. Booking it by hand clears it: `state = state.model_copy(update={"cash": broker.cash()})`.
+- The USDG Borro holds against a short earns interest. On the fork, one share of MSTR short earned about 0.023 USDG
+  in a day, which is over the cent, so a short carried to the next session raises the engine's `BookMismatch`.
+  Booking it by hand clears it: `state = state.model_copy(update={"cash": broker.cash()})`.
 - Anything else that moves the wallet (a transfer, a lend, a position Borro closed for you) is a mismatch too, as it
   should be. `broker.exact()` gives the unrounded shares and cash at any time.
 
@@ -182,19 +188,36 @@ Worked out from the server's own `tools/list`:
 
 | `Broker` | Borro tool | What happens |
 |---|---|---|
-| `buy(symbol, usdg)` | `open_long` at 1.01x | Your USDG buys the stock token; it is lent (it earns lending fees) and posted; 1% of the order is borrowed against it. |
-| `sell(symbol, percent=100)` | `close_long` | The token is sold, the small loan repaid, USDG comes back. |
+| `buy(symbol, usdg)` | `buy_stock` | A plain spot order: all the USDG is spent on Uniswap, through the stock's own pools, and the stock token arrives in the wallet. Nothing is lent or borrowed. |
+| `sell(symbol, percent=100)` | `sell_stock` | A plain spot order: that share of the stock token the wallet holds (or `shares=` exactly) is sold for USDG. |
 | `short(symbol, usdg)` | `open_short` | The stock is borrowed and sold; the sale money and a USDG deposit are held. You pay a borrow fee while it is open. |
 | `cover(symbol)` | `close_short` | Buys back what is owed, returns it, pays out what is left. Borro has one short per stock: this closes all of it. |
 | `lend(asset, amount)` | `supply` | USDG earns interest; a stock token you hold earns lending fees. |
-| `positions()` | `position` | Longs, shorts, what is lent, wallet balances. |
+| `positions()` | `position` | `holdings` (the stock tokens in the wallet), shorts, what is lent, wallet balances, and `longs` (leveraged longs). |
 | `buy_spot_with_eth(symbol, shares)` | `buy_with_eth` | A plain spot buy paid in the wallet's ETH. The token lands in the wallet. |
+| `close_long(symbol, percent=100)` | `close_long` | Closes a leveraged long. `buy` does not open one; see "Coming from 0.1" below. |
 
-**Borro's MCP server has no tool for a plain spot buy or sell of a stock token for USDG.** `buy` is therefore the
-nearest thing that can also be sold back through Borro: a long at 1.01x. It behaves like holding the token, with two
-differences you should know: the token is lent out while you hold it, and there is a loan of 1% of the order against
-it, so the position can be liquidated if the token loses nearly all its value. `buy_spot_with_eth` is a true spot
-buy, but it pays in ETH and no Borro tool sells the token back; lend it, or sell it elsewhere.
+**What a spot order costs.** Each buy and each sell is one swap. Borro's fee comes out of the USDG inside the swap, and
+the pools take their own. Every answer's quote shows the fee (`fee_usdg`, `fee_bps`), the price the order really gets
+with the fees in it (`average_price_usd`), how far that is from Borro's price (`vs_feed_pct`) and the least the order
+accepts (`least_accepted_stock` or `least_accepted_usdg`). On the fork test, buying 5 USDG of NVDA and selling it
+again brought back 4.87 USDG. A swap is exact in: all of the USDG (or all of the shares) is spent, and at least the
+quote less the slippage allowed arrives (half a percent; `Broker(slip_bps=...)` changes it), or the swap reverts and
+nothing is spent.
+
+**The steps you sign.** A spot order is up to three transactions: the token's approval to Permit2 (Uniswap's approval
+contract) for exactly the amount, Permit2's allowance for Uniswap's Universal Router for exactly the amount (it lapses
+after 30 minutes), then the swap. The kit refuses a spot order whose steps go anywhere else.
+
+**What is in the wallet is yours to move.** A token `buy` bought sits in the wallet and earns nothing there. `lend`
+lends it on Borro, where it earns lending fees; stock that is lent is no longer in the wallet, so `sell` does not see
+it until you take it back on Borro.
+
+**Coming from 0.1.** Before 0.2.0 Borro's MCP server had no spot tools, so `buy` opened a leveraged long at 1.01x and
+`sell` closed it. 0.2.0 needs a server that lists `buy_stock` and `sell_stock`; against one that does not, `buy` and
+`sell` raise `SpotUnavailable` and send nothing. A long opened by an older version is still
+there: `positions()["longs"]` lists it, and `close_long` (or `borro-live close-long NVDA`) closes it. `sell` does not
+touch it, and `BorroBroker` does not count it. `Broker(leverage=...)` is gone.
 
 `short` deposits 1 USDG for each USDG shorted by default (`short_deposit=1.0`), and never less than a tenth over the
 least Borro asks. At that default a short is closed for you after a rise of roughly half; the quote in every answer
@@ -215,6 +238,8 @@ gives the exact price (`closed_for_you_at_price`). A thinner deposit is closed s
   the next.
 - **What is signed.** Only transactions for your wallet on chain 4663. No order sends ETH except
   `buy_spot_with_eth`, and never more than its quote. A USDG approval is refused if it is for more than the order.
+  A spot order may approve the token it spends to Permit2, let Uniswap's Universal Router take it through Permit2,
+  and swap on that router: a step that goes anywhere else is refused.
 - **The key.** Read from `BORRO_AGENT_KEY`, kept in memory, never printed, logged or written. Errors never carry your
   RPC address.
 - **Trust.** Borro's server builds the transactions. Read a dry run's `transactions` before going live: each has the
@@ -230,7 +255,8 @@ Broker.from_env(builder_code="yourcode")      # or BORRO_BUILDER_CODE=yourcode
 ```
 
 - The wallet is bound to the code once, with one free signature (`bind_builder`, no transaction). From then on the
-  code earns Borro's fee on the interest that wallet pays when it borrows (shorts and the loan under a buy).
+  code earns Borro's fee on the interest that wallet pays when it borrows (its shorts). A spot buy or sell borrows
+  nothing, so it earns the code nothing.
 - Lends go through the `BorroBuilders` contract with the code, so the code earns Borro's fee on what those deposits
   earn. The wallet keeps its vault shares.
 - The share is all of Borro's fee for 12 months, half after, paid monthly in USDG to the wallet that registered the
@@ -243,12 +269,13 @@ There is no default code. If you ship this in a framework, set yours.
 ## Tests
 
 ```sh
-python -m unittest discover -s tests -p 'test_unit.py'        # 62 tests against recorded MCP answers, no network
+python -m unittest discover -s tests -p 'test_unit.py'        # 71 tests against recorded MCP answers, no network
 ```
 
-Borro also runs the kit end to end on a local fork of Robinhood Chain in its own repository: a dry run, a live buy, lend,
-short, cover and sell, both adapters, the caps, a builder code, and ai-hedge-fund's engine for four sessions. `BORRO_MCP_URL`
-points the client at another MCP address, which is how that test reaches its local server.
+Borro also runs the kit end to end on a local fork of Robinhood Chain in its own repository: a dry run, a live spot
+buy, lend, short, cover and spot sell, both adapters, the caps, a builder code, and ai-hedge-fund's engine for four
+sessions. It reads the chain to check that a buy takes exactly the order's USDG and leaves the stock token in the
+wallet. `BORRO_MCP_URL` points the client at another MCP address, which is how that test reaches its local server.
 
 `walk.sh` is the one real walk: one small live order per framework from a funded wallet. It asks before it sends.
 

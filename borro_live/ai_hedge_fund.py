@@ -7,6 +7,8 @@ Two shapes, because the project has two:
 * The v2 engine's ``Broker`` protocol (``positions()``, ``cash()``, ``place_order(order)`` with buy and sell orders
   on signed whole-share counts): ``BorroBroker``.
 
+A buy and a sell are plain spot orders (the stock token is held in the wallet); a short borrows the stock on Borro.
+
 ai-hedge-fund itself is never imported unless it is installed: plain dicts and objects work.
 """
 
@@ -27,11 +29,9 @@ def _get(obj, name, default=None):
     return obj.get(name, default) if isinstance(obj, dict) else getattr(obj, name, default)
 
 
-def _long_shares(pos: dict, symbol: str) -> float:
-    if not any(p.get("symbol") == symbol for p in pos["longs"]):
-        return 0.0
-    row = next((s for s in pos["stocks"] if s.get("symbol") == symbol), {})
-    return float((row.get("usdg_loan") or {}).get("posted_stock") or 0)
+def _held_shares(pos: dict, symbol: str) -> float:
+    """The stock token in the wallet itself: what a buy bought and a sell can sell."""
+    return float(next((h.get("shares") or 0 for h in pos["holdings"] if h.get("symbol") == symbol), 0))
 
 
 def _short_shares(pos: dict, symbol: str) -> float:
@@ -46,8 +46,10 @@ def execute_decisions(broker: Broker, decisions, scale: float = 1.0) -> dict:
     portfolio and the caps here are in USDG. Returns ``{ticker: Result}``; a ticker this kit or Borro refused maps
     to the reason as a string, and a hold to None, so one refusal never stops the others.
 
-    buy     buy ``quantity`` shares' worth        sell    sell that share of the long
+    buy     buy ``quantity`` shares' worth        sell    sell ``quantity`` shares the wallet holds (all, if it holds fewer)
     short   short ``quantity`` shares' worth      cover   close the short (Borro closes a short whole)
+
+    buy and sell are plain spot orders: the stock token is held in the wallet.
     """
     inner = _get(decisions, "decisions")
     decisions = inner if inner is not None else decisions
@@ -73,10 +75,10 @@ def execute_decisions(broker: Broker, decisions, scale: float = 1.0) -> dict:
             else:
                 broker.price(symbol)
                 pos = pos or broker.positions()
-                held = _long_shares(pos, symbol)
+                held = _held_shares(pos, symbol)
                 if held <= 0:
-                    raise BorroLiveError(f"no long on {symbol} to sell")
-                out[symbol] = broker.sell(symbol, max(1.0, min(100.0, 100.0 * qty / held)))
+                    raise BorroLiveError(f"the wallet holds no {symbol} to sell")
+                out[symbol] = broker.sell(symbol) if qty >= held else broker.sell(symbol, shares=qty)
         except (BorroLiveError, McpError, ChainError) as e:
             out[symbol] = f"refused: {e}"
     return out
@@ -125,16 +127,15 @@ def _whole(shares: float) -> int:
 def _exact(pos: dict) -> tuple[dict, float]:
     """The wallet's book as the engine counts one: signed shares by ticker (not rounded), and cash.
 
-    Shares are the stock posted under a long, less the stock a short owes. Cash is the USDG in the wallet, less the
-    USDG owed under the longs, plus the USDG Borro holds against the shorts (the sale money and the deposit).
+    Shares are the stock tokens in the wallet, less the stock a short owes. Cash is the USDG in the wallet, plus the
+    USDG Borro holds against the shorts (the sale money and the deposit). Stock lent on Borro, and a leveraged long
+    opened before 0.2.0 or elsewhere, are outside this book.
     """
-    longs = {p.get("symbol") for p in pos["longs"]}
     shares, cash = {}, float(pos["usdg"] or 0)
     for s in pos["stocks"]:
-        loan = (s.get("usdg_loan") or {}) if s.get("symbol") in longs else {}
         short = s.get("short") or {}
-        n = float(loan.get("posted_stock") or 0) - float(short.get("owed_stock") or 0)
-        cash += float(short.get("held_usdg") or 0) - float(loan.get("owed_usdg") or 0)
+        n = float(s.get("in_wallet") or 0) - float(short.get("owed_stock") or 0)
+        cash += float(short.get("held_usdg") or 0)
         if n:
             shares[s["symbol"]] = n
     return shares, cash
@@ -145,20 +146,25 @@ class BorroBroker:
 
     Orders there are whole shares on a signed book: a sell past zero is a short, a buy toward zero a cover. An order
     fills completely or raises. One that would cross zero, or cover part of a short, is refused (Borro closes a short
-    whole), and so is a sell of less than 1% of a long.
+    whole).
 
-    positions()   whole shares: the stock posted under each long, less the stock each short owes, rounded.
-    cash()        USDG in the wallet, less the USDG owed under the longs, plus the USDG Borro holds against the shorts.
-    place_order   a buy is sized from Borro's quote so the long gains the whole count. When the order has landed the
-                  book is read again: if it did not move by exactly the order, ``FillMismatch`` is raised; otherwise
-                  the ``Fill`` carries the price the cash really moved by, per share.
+    A buy and a sell are plain spot orders: the stock token is bought into the wallet and sold from it.
+
+    positions()   whole shares: the stock tokens in the wallet, less the stock each short owes, rounded.
+    cash()        USDG in the wallet, plus the USDG Borro holds against the shorts.
+    place_order   a buy is sized from Borro's quote so the wallet gains the whole count; a sell sells exactly the
+                  count, or everything the wallet holds of it when the count is all its whole shares. When the order
+                  has landed the book is read again: if it did not move by exactly the order, ``FillMismatch`` is
+                  raised; otherwise the ``Fill`` carries the price the cash really moved by, per share, Borro's fee
+                  and the pools' fees in it.
 
     A broker that is not live sends nothing. By default ``place_order`` then raises ``DryRun`` with Borro's simulation.
     With ``simulate_fills=True`` it returns a SIMULATED ``Fill`` instead and keeps those fills in a paper book in
     memory, so the engine can run whole sessions as a dry run: ``positions()`` and ``cash()`` add the paper book to
-    what the wallet really holds. An opening order is priced from Borro's simulation of it from the wallet (a buy at
-    the most the quote lets it cost). An order that closes shares held only on paper cannot be simulated by Borro and
-    is priced at Borro's price; its ``Result`` says so in ``note``. Every ``Result`` is kept in ``results``.
+    what the wallet really holds. An order Borro can simulate from the wallet is priced from its quote (a buy at the
+    USDG it spends, a sell at what the quote says it brings after the fee). An order that closes shares held only on
+    paper cannot be simulated by Borro and is priced at Borro's price; its ``Result`` says so in ``note``. Every
+    ``Result`` is kept in ``results``.
 
     The caps are the underlying broker's: ``Broker(max_order_usdg=..., max_day_usdg=...)``.
     """
@@ -206,11 +212,11 @@ class BorroBroker:
         pos = self._read(fresh=True)
         shares, cash = _exact(pos)
         paper = self._paper.get(symbol, 0)
-        long_, short_ = _long_shares(pos, symbol), _short_shares(pos, symbol)
+        long_, short_ = _held_shares(pos, symbol), _short_shares(pos, symbol)
         if paper:  # a dry run that already holds simulated shares of this stock: the book is the wallet's plus the paper
             net = _whole(long_ - short_) + paper
             long_, short_ = float(max(net, 0)), float(max(-net, 0))
-        percent = None
+        sell_all = False
         if side == "buy" and _whole(short_) > 0:
             if qty != _whole(short_):
                 raise BorroLiveError(f"Borro closes a short whole: buy {_whole(short_)} {symbol} to cover it, then buy more")
@@ -220,9 +226,9 @@ class BorroBroker:
         elif _whole(long_) > 0:
             if qty > _whole(long_):
                 raise BorroLiveError(f"sell the {_whole(long_)} {symbol} held first, then short")
-            kind, percent = "sell", 100.0 if qty == _whole(long_) else round(100.0 * qty / long_, 2)
-            if percent < 1:
-                raise BorroLiveError(f"Borro closes at least 1% of a long: selling {qty} of {_whole(long_)} {symbol} is under that")
+            # Selling every whole share sells everything the wallet holds of it, the fraction of a share a buy left
+            # over or under included, so the book reads zero after it.
+            kind, sell_all = "sell", qty == _whole(long_)
         else:
             kind = "short"
 
@@ -232,7 +238,7 @@ class BorroBroker:
             fill_price = price
         else:
             try:
-                res = self._send(kind, symbol, qty, price, percent)
+                res = self._send(kind, symbol, qty, price, sell_all)
             except CapExceeded as e:
                 raise CapExceeded(f"{side} {qty} {symbol} is about {qty * price:,.2f} USDG: {e}. The engine orders whole shares, so set the caps to "
                                   "cover its orders: Broker(max_order_usdg=..., max_day_usdg=...), or BORRO_MAX_ORDER_USDG and BORRO_MAX_DAY_USDG") from None
@@ -255,11 +261,9 @@ class BorroBroker:
                 raise SimulationFailed(f"{side} {qty} {symbol}: Borro's simulation failed, so there is no simulated fill")
             q = res.quote
             if kind == "buy":
-                fill_price = (float(q["margin_usdg"]) + float(q["debt_usdg"])) / qty
-            elif kind == "short":
+                fill_price = float(q["usdg_in"]) / qty
+            elif kind in ("short", "sell"):
                 fill_price = float(q["after_fee_usdg"]) / qty
-            elif kind == "sell":
-                fill_price = (float(q["back_usdg"]) + float(q["owed_usdg"]) * percent / 100) / qty
             else:
                 fill_price = price
                 res.note = "simulated; Borro's quote for closing a short carries no cost, so the fill is priced at Borro's price"
@@ -268,17 +272,20 @@ class BorroBroker:
         self._paper_cash -= signed * fill_price
         return Fill(ticker=symbol, side=side, quantity=qty, price=fill_price)
 
-    def _send(self, kind: str, symbol: str, qty: int, price: float, percent: float | None) -> Result:
+    def _send(self, kind: str, symbol: str, qty: int, price: float, sell_all: bool) -> Result:
         b = self.broker
         if kind == "cover":
             return b.cover(symbol)
         if kind == "sell":
-            return b.sell(symbol, percent)
+            return b.sell(symbol) if sell_all else b.sell(symbol, shares=qty)
         b._check_caps(qty * price)
         if kind == "short":
             return b.short(symbol, qty * price)
-        # Borro buys an exact amount of stock for a margin, and the amount grows with the margin: ask what a margin
-        # near the order's worth buys, then scale it so the long gains the whole count.
-        margin = qty * price / b.leverage
-        quote = b.mcp.call("open_long", {"wallet": b.wallet, "symbol": symbol, "margin": _dec(margin, 6), "leverage": b.leverage})["quote"]
-        return b.buy(symbol, margin * qty / float(quote["stock"]))
+        # A spot buy spends an exact amount of USDG, and the stock it brings grows with it: ask what the order's worth
+        # buys, then scale the USDG so the wallet gains the whole count.
+        b._need_spot()
+        usdg = qty * price
+        quote = b.mcp.call("buy_stock", {"wallet": b.wallet, "symbol": symbol, "usdg": _dec(usdg, 6), **b._slip()})
+        if quote.get("live") is False:
+            raise BorroLiveError(quote.get("note") or "buy_stock is not live on Borro")
+        return b.buy(symbol, usdg * qty / float(quote["quote"]["stock"]))

@@ -1,1 +1,3723 @@
-{"jsonrpc":"2.0","id":2,"result":{"tools":[{"name":"markets","title":"The shelf","description":"Every stock on Borro and the USDG vault: price, what is lent, borrowed and free to short, what lenders earn and what shorters pay a year (one number each, $BORRO included once it has been paid), the USDG borrowing rate against each stock, and the $BORRO Drip to lenders: dollars a day per pool at today's price, and the rate a deposit of a given size would get.","inputSchema":{"type":"object","properties":{}},"annotations":{"readOnlyHint":true,"destructiveHint":false,"idempotentHint":true,"openWorldHint":false}},{"name":"position","title":"A wallet on Borro","description":"Everything a wallet has on Borro: stock lent, shorts (owed, money held, the price it is closed for you at, and parts: how much of the stock's one short is the wallet's own, a pair's and a basket leg's), USDG loans, USDG lent, open pairs (each with short_now, its own part of the short), gap covers bought and its part of the gap cover pool, options held, written and on order (with what to do next and one yearly number for premiums over what they locked), bear coins it launched, $BORRO to claim, its locker rebates (the share of Borro's fees it gets back for its $BORRO lock, what is owed and what has been paid), and its ETH and USDG.","inputSchema":{"type":"object","properties":{"wallet":{"type":"string","description":"The wallet's address (0x...); the transactions are built for it to sign"}},"required":["wallet"]},"annotations":{"readOnlyHint":true,"destructiveHint":false,"idempotentHint":true,"openWorldHint":false}},{"name":"open_short","title":"Prepare: open a short","description":"Unsigned transactions to short a stock from the wallet: approve the deposit if needed, then BorroShort.open (borrow the stock, sell it, hold the money plus the deposit). Priced now, with half a percent of slip allowed; simulated from the wallet. The quote's rebate_estimate is what this short puts in the wallet's weekly locker rebate.","inputSchema":{"type":"object","properties":{"wallet":{"type":"string","description":"The wallet's address (0x...); the transactions are built for it to sign"},"symbol":{"type":"string","description":"A stock on Borro by its ticker, like NVDA or AAPL (markets lists every one)"},"amount":{"type":"string","description":"Stock to short, in whole units as a decimal string, like \"1.5\""},"deposit":{"type":"string","description":"USDG to add to the money held, beyond the sale (optional, default 0), in whole units as a decimal string, like \"1.5\""}},"required":["wallet","symbol","amount"]},"annotations":{"readOnlyHint":true,"destructiveHint":false,"idempotentHint":true,"openWorldHint":false}},{"name":"close_short","title":"Prepare: close a short","description":"Unsigned transactions to close the wallet's short on a stock: buy back everything owed, return it, take out the money held (with a USDG top-up approval if it is under water). A wallet has one short per stock, shared by any pair or basket legs on it: this closes all of it, and closes_parts lists the parts it takes with it. close_pair closes only a pair's own part.","inputSchema":{"type":"object","properties":{"wallet":{"type":"string","description":"The wallet's address (0x...); the transactions are built for it to sign"},"symbol":{"type":"string","description":"A stock on Borro by its ticker, like NVDA or AAPL (markets lists every one)"}},"required":["wallet","symbol"]},"annotations":{"readOnlyHint":true,"destructiveHint":false,"idempotentHint":true,"openWorldHint":false}},{"name":"supply","title":"Prepare: lend","description":"Unsigned transactions to lend a stock to shorters (it earns lending fees) or USDG in the Borro USDG vault (it earns interest). With post: true, a stock is lent and posted in one step so USDG can be borrowed against it.","inputSchema":{"type":"object","properties":{"wallet":{"type":"string","description":"The wallet's address (0x...); the transactions are built for it to sign"},"asset":{"type":"string","description":"USDG, or a stock symbol"},"amount":{"type":"string","description":"Amount to lend, in whole units as a decimal string, like \"1.5\""},"post":{"type":"boolean","description":"Stock only: lend and post as collateral in one step"}},"required":["wallet","asset","amount"]},"annotations":{"readOnlyHint":true,"destructiveHint":false,"idempotentHint":true,"openWorldHint":false}},{"name":"withdraw","title":"Prepare: take back what is lent","description":"Unsigned transaction to take back lent stock or USDG (part, or all with all: true). Stock on loan to shorters comes back once it is returned.","inputSchema":{"type":"object","properties":{"wallet":{"type":"string","description":"The wallet's address (0x...); the transactions are built for it to sign"},"asset":{"type":"string","description":"USDG, or a stock symbol"},"amount":{"type":"string","description":"Amount to take back, in whole units as a decimal string, like \"1.5\""},"all":{"type":"boolean","description":"Take back everything"}},"required":["wallet","asset"]},"annotations":{"readOnlyHint":true,"destructiveHint":false,"idempotentHint":true,"openWorldHint":false}},{"name":"bind_builder","title":"Prepare: credit a bookrunner for borrowing","description":"Credits a bookrunner's code with the wallet's borrowing on Borro (Bookrunners): the bookrunner earns Borro's own fee on the interest the wallet pays, all of it for 12 months, half after; the wallet pays nothing more. Without signature: EIP-712 typed data for the wallet to sign (eth_signTypedData_v4, no transaction, no gas), good for 10 minutes. With signature and that timestamp: submits it, the same as POST https://borro.markets/builders/bind. One code per wallet; the first binding stands.","inputSchema":{"type":"object","properties":{"wallet":{"type":"string","description":"The wallet's address (0x...); the transactions are built for it to sign"},"code":{"type":"string","description":"The bookrunner's code, as in borro.markets/?ref=<code>"},"timestamp":{"type":"integer","description":"With signature: the timestamp from the typed data that was signed"},"signature":{"type":"string","description":"The wallet's EIP-712 signature, 0x and 130 hex characters; leave out to get the typed data"}},"required":["wallet","code"]},"annotations":{"readOnlyHint":false,"destructiveHint":false,"idempotentHint":true,"openWorldHint":false}},{"name":"buy_with_eth","title":"Prepare: pay with ETH","description":"Unsigned transaction swapping the wallet's ETH for USDG or a stock on Uniswap, or through Route (route.fun) for a stock bought exact in when Route guarantees more (no Borro contract, no Borro fee), for the flows that need them.","inputSchema":{"type":"object","properties":{"wallet":{"type":"string","description":"The wallet's address (0x...); the transactions are built for it to sign"},"want":{"type":"string","description":"USDG, or a stock symbol"},"amount":{"type":"string","description":"How much of it to get, in whole units as a decimal string, like \"1.5\""},"slip_bps":{"type":"integer","description":"Most the price may move, in hundredths of a percent (default 100, 1%)"}},"required":["wallet","want","amount"]},"annotations":{"readOnlyHint":true,"destructiveHint":false,"idempotentHint":true,"openWorldHint":false}},{"name":"open_long","title":"Prepare: leveraged long","description":"Unsigned transactions for a leveraged long on a stock in one open: USDG margin plus a flash-borrowed debt buy the stock, which is lent (it earns lending fees) and posted, and the debt is borrowed against it in the wallet's own name. Approve the margin and authorize LeverRouter on Morpho if needed, then open. Leverage up to 1.80x on SPY, QQQ and NVDA, 1.35x on the rest.","inputSchema":{"type":"object","properties":{"wallet":{"type":"string","description":"The wallet's address (0x...); the transactions are built for it to sign"},"symbol":{"type":"string","description":"A stock on Borro by its ticker, like NVDA or AAPL (markets lists every one)"},"margin":{"type":"string","description":"USDG margin from the wallet, in whole units as a decimal string, like \"1.5\""},"leverage":{"type":"number","description":"Leverage, more than 1, like 1.5"}},"required":["wallet","symbol","margin","leverage"]},"annotations":{"readOnlyHint":true,"destructiveHint":false,"idempotentHint":true,"openWorldHint":false}},{"name":"close_long","title":"Prepare: close a leveraged long","description":"Unsigned transaction closing all or part of the wallet's leveraged long on a stock: the stock is sold, the debt repaid, and the rest comes back in USDG.","inputSchema":{"type":"object","properties":{"wallet":{"type":"string","description":"The wallet's address (0x...); the transactions are built for it to sign"},"symbol":{"type":"string","description":"A stock on Borro by its ticker, like NVDA or AAPL (markets lists every one)"},"percent":{"type":"number","description":"How much of the position to close, 1 to 100 (default 100)"}},"required":["wallet","symbol"]},"annotations":{"readOnlyHint":true,"destructiveHint":false,"idempotentHint":true,"openWorldHint":false}}]}}
+{
+ "jsonrpc": "2.0",
+ "id": 1,
+ "result": {
+  "tools": [
+   {
+    "name": "markets",
+    "title": "The shelf",
+    "description": "Every stock on Borro and the USDG vault: price, what is lent, borrowed and free to short, what lenders earn and what shorters pay a year (one number each, $BORRO included once it has been paid), the USDG borrowing rate against each stock, and the $BORRO Drip to lenders: dollars a day per pool at today's price, and the rate a deposit of a given size would get.",
+    "inputSchema": {
+     "type": "object",
+     "properties": {}
+    },
+    "annotations": {
+     "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
+     "openWorldHint": false
+    }
+   },
+   {
+    "name": "market",
+    "title": "One stock",
+    "description": "One stock's full line from the shelf: rates, sizes, limits, open fee and its contracts.",
+    "inputSchema": {
+     "type": "object",
+     "properties": {
+      "symbol": {
+       "type": "string",
+       "description": "A stock on Borro by its ticker, like NVDA or AAPL (markets lists every one)"
+      }
+     },
+     "required": [
+      "symbol"
+     ]
+    },
+    "annotations": {
+     "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
+     "openWorldHint": false
+    }
+   },
+   {
+    "name": "health",
+    "title": "Health and liquidation prices",
+    "description": "For bots that watch for liquidation: every short and USDG loan of a wallet, worst first, with how much of its limit it uses (limit_used, 1 = Morpho can liquidate it now), health (1 / limit_used), the stock price that liquidates it, how far the price is from that in percent, a status (ok, warn from 0.85, danger from 0.95, liquidatable), and the market clock. Also at /health/<wallet>.json.",
+    "inputSchema": {
+     "type": "object",
+     "properties": {
+      "wallet": {
+       "type": "string",
+       "description": "The wallet's address (0x...); the transactions are built for it to sign"
+      }
+     },
+     "required": [
+      "wallet"
+     ]
+    },
+    "annotations": {
+     "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
+     "openWorldHint": false
+    }
+   },
+   {
+    "name": "position",
+    "title": "A wallet on Borro",
+    "description": "Everything a wallet has on Borro: stock lent, shorts (owed, money held, the price it is closed for you at, and parts: how much of the stock's one short is the wallet's own, a pair's and a basket leg's), USDG loans, USDG lent, open pairs (each with short_now, its own part of the short), gap covers bought and its part of the gap cover pool, options held, written and on order (with what to do next and one yearly number for premiums over what they locked), bear coins it launched, $BORRO to claim, its locker rebates (the share of Borro's fees it gets back for its $BORRO lock, what is owed and what has been paid), and its ETH and USDG.",
+    "inputSchema": {
+     "type": "object",
+     "properties": {
+      "wallet": {
+       "type": "string",
+       "description": "The wallet's address (0x...); the transactions are built for it to sign"
+      }
+     },
+     "required": [
+      "wallet"
+     ]
+    },
+    "annotations": {
+     "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
+     "openWorldHint": false
+    }
+   },
+   {
+    "name": "trades",
+    "title": "Recent trades",
+    "description": "Borro-wide recent shorts opened and closed, newest first.",
+    "inputSchema": {
+     "type": "object",
+     "properties": {}
+    },
+    "annotations": {
+     "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
+     "openWorldHint": false
+    }
+   },
+   {
+    "name": "prices",
+    "title": "Stock tokens against the stock",
+    "description": "For each stock token on Borro: the stock's own price (its Chainlink feed while the market is open; Borro's weekend estimate and 95% band while it is shut), the token's executable buy and sell price on chain for $1,000 and $10,000 (what Borro's short desk would pay or get through its own swap route, before Borro's fee), and the gap in percent (gapPct: the token's mid against the stock). Positive: the token trades over the stock (short it on Borro); negative: under it (buy and lend it). Refreshed every 30 seconds; the same as https://borro.markets/prices.json.",
+    "inputSchema": {
+     "type": "object",
+     "properties": {}
+    },
+    "annotations": {
+     "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
+     "openWorldHint": false
+    }
+   },
+   {
+    "name": "bear_coins",
+    "title": "Bear coins",
+    "description": "The bear coins directory: every coin launched on Pons from Borro with its own short, its stock, P/L, burns and fees.",
+    "inputSchema": {
+     "type": "object",
+     "properties": {}
+    },
+    "annotations": {
+     "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
+     "openWorldHint": false
+    }
+   },
+   {
+    "name": "rules",
+    "title": "Rules and contracts",
+    "description": "Borro's house rules, limits, what can go wrong, and every contract address with what it does, to verify on chain.",
+    "inputSchema": {
+     "type": "object",
+     "properties": {}
+    },
+    "annotations": {
+     "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
+     "openWorldHint": false
+    }
+   },
+   {
+    "name": "open_short",
+    "title": "Prepare: open a short",
+    "description": "Unsigned transactions to short a stock from the wallet: approve the deposit if needed, then BorroShort.open (borrow the stock, sell it, hold the money plus the deposit). Priced now, with half a percent of slip allowed; simulated from the wallet. The quote's rebate_estimate is what this short puts in the wallet's weekly locker rebate.",
+    "inputSchema": {
+     "type": "object",
+     "properties": {
+      "wallet": {
+       "type": "string",
+       "description": "The wallet's address (0x...); the transactions are built for it to sign"
+      },
+      "symbol": {
+       "type": "string",
+       "description": "A stock on Borro by its ticker, like NVDA or AAPL (markets lists every one)"
+      },
+      "amount": {
+       "type": "string",
+       "description": "Stock to short, in whole units as a decimal string, like \"1.5\""
+      },
+      "deposit": {
+       "type": "string",
+       "description": "USDG to add to the money held, beyond the sale (optional, default 0), in whole units as a decimal string, like \"1.5\""
+      }
+     },
+     "required": [
+      "wallet",
+      "symbol",
+      "amount"
+     ]
+    },
+    "annotations": {
+     "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
+     "openWorldHint": false
+    }
+   },
+   {
+    "name": "close_short",
+    "title": "Prepare: close a short",
+    "description": "Unsigned transactions to close the wallet's short on a stock: buy back everything owed, return it, take out the money held (with a USDG top-up approval if it is under water). A wallet has one short per stock, shared by any pair or basket legs on it: this closes all of it, and closes_parts lists the parts it takes with it. close_pair closes only a pair's own part.",
+    "inputSchema": {
+     "type": "object",
+     "properties": {
+      "wallet": {
+       "type": "string",
+       "description": "The wallet's address (0x...); the transactions are built for it to sign"
+      },
+      "symbol": {
+       "type": "string",
+       "description": "A stock on Borro by its ticker, like NVDA or AAPL (markets lists every one)"
+      }
+     },
+     "required": [
+      "wallet",
+      "symbol"
+     ]
+    },
+    "annotations": {
+     "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
+     "openWorldHint": false
+    }
+   },
+   {
+    "name": "supply",
+    "title": "Prepare: lend",
+    "description": "Unsigned transactions to lend a stock to shorters (it earns lending fees) or USDG in the Borro USDG vault (it earns interest). With post: true, a stock is lent and posted in one step so USDG can be borrowed against it.",
+    "inputSchema": {
+     "type": "object",
+     "properties": {
+      "wallet": {
+       "type": "string",
+       "description": "The wallet's address (0x...); the transactions are built for it to sign"
+      },
+      "asset": {
+       "type": "string",
+       "description": "USDG, or a stock symbol"
+      },
+      "amount": {
+       "type": "string",
+       "description": "Amount to lend, in whole units as a decimal string, like \"1.5\""
+      },
+      "post": {
+       "type": "boolean",
+       "description": "Stock only: lend and post as collateral in one step"
+      }
+     },
+     "required": [
+      "wallet",
+      "asset",
+      "amount"
+     ]
+    },
+    "annotations": {
+     "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
+     "openWorldHint": false
+    }
+   },
+   {
+    "name": "withdraw",
+    "title": "Prepare: take back what is lent",
+    "description": "Unsigned transaction to take back lent stock or USDG (part, or all with all: true). Stock on loan to shorters comes back once it is returned.",
+    "inputSchema": {
+     "type": "object",
+     "properties": {
+      "wallet": {
+       "type": "string",
+       "description": "The wallet's address (0x...); the transactions are built for it to sign"
+      },
+      "asset": {
+       "type": "string",
+       "description": "USDG, or a stock symbol"
+      },
+      "amount": {
+       "type": "string",
+       "description": "Amount to take back, in whole units as a decimal string, like \"1.5\""
+      },
+      "all": {
+       "type": "boolean",
+       "description": "Take back everything"
+      }
+     },
+     "required": [
+      "wallet",
+      "asset"
+     ]
+    },
+    "annotations": {
+     "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
+     "openWorldHint": false
+    }
+   },
+   {
+    "name": "borrow",
+    "title": "Prepare: borrow USDG",
+    "description": "Unsigned transaction to borrow USDG against stock already lent and posted (supply with post: true first). The quote's rebate_estimate is what this loan puts in the wallet's weekly locker rebate.",
+    "inputSchema": {
+     "type": "object",
+     "properties": {
+      "wallet": {
+       "type": "string",
+       "description": "The wallet's address (0x...); the transactions are built for it to sign"
+      },
+      "symbol": {
+       "type": "string",
+       "description": "A stock on Borro by its ticker, like NVDA or AAPL (markets lists every one)"
+      },
+      "amount": {
+       "type": "string",
+       "description": "USDG to borrow, in whole units as a decimal string, like \"1.5\""
+      }
+     },
+     "required": [
+      "wallet",
+      "symbol",
+      "amount"
+     ]
+    },
+    "annotations": {
+     "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
+     "openWorldHint": false
+    }
+   },
+   {
+    "name": "repay",
+    "title": "Prepare: repay USDG",
+    "description": "Unsigned transactions to repay USDG borrowed against a stock (part, or all with all: true).",
+    "inputSchema": {
+     "type": "object",
+     "properties": {
+      "wallet": {
+       "type": "string",
+       "description": "The wallet's address (0x...); the transactions are built for it to sign"
+      },
+      "symbol": {
+       "type": "string",
+       "description": "A stock on Borro by its ticker, like NVDA or AAPL (markets lists every one)"
+      },
+      "amount": {
+       "type": "string",
+       "description": "USDG to repay, in whole units as a decimal string, like \"1.5\""
+      },
+      "all": {
+       "type": "boolean",
+       "description": "Repay everything owed"
+      }
+     },
+     "required": [
+      "wallet",
+      "symbol"
+     ]
+    },
+    "annotations": {
+     "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
+     "openWorldHint": false
+    }
+   },
+   {
+    "name": "bind_builder",
+    "title": "Prepare: credit a bookrunner for borrowing",
+    "description": "Credits a bookrunner's code with the wallet's borrowing on Borro (Bookrunners): the bookrunner earns Borro's own fee on the interest the wallet pays, all of it for 12 months, half after; the wallet pays nothing more. Without signature: EIP-712 typed data for the wallet to sign (eth_signTypedData_v4, no transaction, no gas), good for 10 minutes. With signature and that timestamp: submits it, the same as POST https://borro.markets/builders/bind. One code per wallet; the first binding stands.",
+    "inputSchema": {
+     "type": "object",
+     "properties": {
+      "wallet": {
+       "type": "string",
+       "description": "The wallet's address (0x...); the transactions are built for it to sign"
+      },
+      "code": {
+       "type": "string",
+       "description": "The bookrunner's code, as in borro.markets/?ref=<code>"
+      },
+      "timestamp": {
+       "type": "integer",
+       "description": "With signature: the timestamp from the typed data that was signed"
+      },
+      "signature": {
+       "type": "string",
+       "description": "The wallet's EIP-712 signature, 0x and 130 hex characters; leave out to get the typed data"
+      }
+     },
+     "required": [
+      "wallet",
+      "code"
+     ]
+    },
+    "annotations": {
+     "readOnlyHint": false,
+     "destructiveHint": false,
+     "idempotentHint": true,
+     "openWorldHint": false
+    }
+   },
+   {
+    "name": "open_pair",
+    "title": "Prepare: open a pair",
+    "description": "Unsigned transactions for a pair trade: buy and lend the long stock in your name (it earns lending fees while held), then short the other, approvals first. Priced now; simulated from the wallet in order.",
+    "inputSchema": {
+     "type": "object",
+     "properties": {
+      "wallet": {
+       "type": "string",
+       "description": "The wallet's address (0x...); the transactions are built for it to sign"
+      },
+      "long": {
+       "type": "string",
+       "description": "A stock on Borro by its ticker, like NVDA or AAPL (markets lists every one)"
+      },
+      "short": {
+       "type": "string",
+       "description": "A stock on Borro by its ticker, like NVDA or AAPL (markets lists every one)"
+      },
+      "long_amount": {
+       "type": "string",
+       "description": "Long stock to buy, in whole units as a decimal string, like \"1.5\""
+      },
+      "short_amount": {
+       "type": "string",
+       "description": "Stock to short, in whole units as a decimal string, like \"1.5\""
+      },
+      "deposit": {
+       "type": "string",
+       "description": "USDG held against the short beyond the sale (optional), in whole units as a decimal string, like \"1.5\""
+      }
+     },
+     "required": [
+      "wallet",
+      "long",
+      "short",
+      "long_amount",
+      "short_amount"
+     ]
+    },
+    "annotations": {
+     "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
+     "openWorldHint": false
+    }
+   },
+   {
+    "name": "close_pair",
+    "title": "Prepare: close a pair",
+    "description": "Unsigned transactions to close the wallet's newest open pair of these two stocks: the pair's own part of the short closed (a basket leg or a short of its own on the same stock stays open, listed in stays_open), the long's lent stock taken back (what is free now, if part is on loan). If something else already closed part of the pair's short, this closes what is left and the note says so.",
+    "inputSchema": {
+     "type": "object",
+     "properties": {
+      "wallet": {
+       "type": "string",
+       "description": "The wallet's address (0x...); the transactions are built for it to sign"
+      },
+      "long": {
+       "type": "string",
+       "description": "A stock on Borro by its ticker, like NVDA or AAPL (markets lists every one)"
+      },
+      "short": {
+       "type": "string",
+       "description": "A stock on Borro by its ticker, like NVDA or AAPL (markets lists every one)"
+      }
+     },
+     "required": [
+      "wallet",
+      "long",
+      "short"
+     ]
+    },
+    "annotations": {
+     "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
+     "openWorldHint": false
+    }
+   },
+   {
+    "name": "buy_with_eth",
+    "title": "Prepare: pay with ETH",
+    "description": "Unsigned transaction swapping the wallet's ETH for USDG or a stock on Uniswap, or through Route (route.fun) for a stock bought exact in when Route guarantees more (no Borro contract, no Borro fee), for the flows that need them.",
+    "inputSchema": {
+     "type": "object",
+     "properties": {
+      "wallet": {
+       "type": "string",
+       "description": "The wallet's address (0x...); the transactions are built for it to sign"
+      },
+      "want": {
+       "type": "string",
+       "description": "USDG, or a stock symbol"
+      },
+      "amount": {
+       "type": "string",
+       "description": "How much of it to get, in whole units as a decimal string, like \"1.5\""
+      },
+      "slip_bps": {
+       "type": "integer",
+       "description": "Most the price may move, in hundredths of a percent (default 100, 1%)"
+      }
+     },
+     "required": [
+      "wallet",
+      "want",
+      "amount"
+     ]
+    },
+    "annotations": {
+     "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
+     "openWorldHint": false
+    }
+   },
+   {
+    "name": "buy_stock",
+    "title": "Prepare: buy a stock",
+    "description": "Unsigned transactions for a plain spot buy: the wallet's USDG buys a stock token on Uniswap, through the stock's own pools (the ones Borro's short desk trades on), and the token arrives in the wallet. No loan, no leverage, no Borro contract; supply lends it afterwards if it should earn lending fees. Exact in: all the USDG is spent and at least the quote less slip_bps arrives, or nothing is spent. Borro's fee, the same as the site's Buy tab takes, comes out of the USDG inside the swap (fee_usdg and fee_bps in the quote). Exact approvals first when they are missing: USDG to Permit2 (Uniswap's approval contract), then Permit2's allowance for Uniswap's Universal Router, which lapses after 30 minutes. Priced now; simulated from the wallet in order.",
+    "inputSchema": {
+     "type": "object",
+     "properties": {
+      "wallet": {
+       "type": "string",
+       "description": "The wallet's address (0x...); the transactions are built for it to sign"
+      },
+      "symbol": {
+       "type": "string",
+       "description": "A stock on Borro by its ticker, like NVDA or AAPL (markets lists every one)"
+      },
+      "usdg": {
+       "type": "string",
+       "description": "USDG to spend, all of it, in whole units as a decimal string, like \"1.5\""
+      },
+      "slip_bps": {
+       "type": "integer",
+       "description": "Most the price may move against the quote, in hundredths of a percent (default 50, 0.5%)"
+      }
+     },
+     "required": [
+      "wallet",
+      "symbol",
+      "usdg"
+     ]
+    },
+    "annotations": {
+     "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
+     "openWorldHint": false
+    }
+   },
+   {
+    "name": "sell_stock",
+    "title": "Prepare: sell a stock",
+    "description": "Unsigned transactions for a plain spot sale: a stock token held in the wallet is sold for USDG on Uniswap, through the stock's own pools, and the USDG arrives in the wallet (an amount, or everything the wallet holds with all: true). Stock lent on Borro is not in the wallet: withdraw takes it back first. Exact in: all of the amount is sold and at least the quote less slip_bps arrives, or nothing is sold. Borro's fee, the same as the site's Buy tab takes, comes out of the USDG inside the swap (fee_usdg and fee_bps in the quote). Exact approvals first when they are missing: the stock to Permit2 (Uniswap's approval contract), then Permit2's allowance for Uniswap's Universal Router, which lapses after 30 minutes. Priced now; simulated from the wallet in order.",
+    "inputSchema": {
+     "type": "object",
+     "properties": {
+      "wallet": {
+       "type": "string",
+       "description": "The wallet's address (0x...); the transactions are built for it to sign"
+      },
+      "symbol": {
+       "type": "string",
+       "description": "A stock on Borro by its ticker, like NVDA or AAPL (markets lists every one)"
+      },
+      "amount": {
+       "type": "string",
+       "description": "Stock to sell, in whole units as a decimal string, like \"1.5\""
+      },
+      "all": {
+       "type": "boolean",
+       "description": "Sell everything the wallet holds of it"
+      },
+      "slip_bps": {
+       "type": "integer",
+       "description": "Most the price may move against the quote, in hundredths of a percent (default 50, 0.5%)"
+      }
+     },
+     "required": [
+      "wallet",
+      "symbol"
+     ]
+    },
+    "annotations": {
+     "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
+     "openWorldHint": false
+    }
+   },
+   {
+    "name": "open_long",
+    "title": "Prepare: leveraged long",
+    "description": "Unsigned transactions for a leveraged long on a stock in one open: USDG margin plus a flash-borrowed debt buy the stock, which is lent (it earns lending fees) and posted, and the debt is borrowed against it in the wallet's own name. Approve the margin and authorize LeverRouter on Morpho if needed, then open. Leverage up to 1.80x on SPY, QQQ and NVDA, 1.35x on the rest.",
+    "inputSchema": {
+     "type": "object",
+     "properties": {
+      "wallet": {
+       "type": "string",
+       "description": "The wallet's address (0x...); the transactions are built for it to sign"
+      },
+      "symbol": {
+       "type": "string",
+       "description": "A stock on Borro by its ticker, like NVDA or AAPL (markets lists every one)"
+      },
+      "margin": {
+       "type": "string",
+       "description": "USDG margin from the wallet, in whole units as a decimal string, like \"1.5\""
+      },
+      "leverage": {
+       "type": "number",
+       "description": "Leverage, more than 1, like 1.5"
+      }
+     },
+     "required": [
+      "wallet",
+      "symbol",
+      "margin",
+      "leverage"
+     ]
+    },
+    "annotations": {
+     "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
+     "openWorldHint": false
+    }
+   },
+   {
+    "name": "close_long",
+    "title": "Prepare: close a leveraged long",
+    "description": "Unsigned transaction closing all or part of the wallet's leveraged long on a stock: the stock is sold, the debt repaid, and the rest comes back in USDG.",
+    "inputSchema": {
+     "type": "object",
+     "properties": {
+      "wallet": {
+       "type": "string",
+       "description": "The wallet's address (0x...); the transactions are built for it to sign"
+      },
+      "symbol": {
+       "type": "string",
+       "description": "A stock on Borro by its ticker, like NVDA or AAPL (markets lists every one)"
+      },
+      "percent": {
+       "type": "number",
+       "description": "How much of the position to close, 1 to 100 (default 100)"
+      }
+     },
+     "required": [
+      "wallet",
+      "symbol"
+     ]
+    },
+    "annotations": {
+     "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
+     "openWorldHint": false
+    }
+   },
+   {
+    "name": "farms",
+    "title": "Stock farms",
+    "description": "Borro's stock farms: a Uniswap v4 USDG/stock pool per stock, run by Borro's own hook, that lends what swaps do not need on Borro. For each farm: its size, what is kept for swaps and what is lent, its swap fee and squeeze fee now, the lending fees and interest its lent part earns, the last day's and week's swap volume and farmers' fees, and Your APR on a $1,000 deposit as one number (fees at the last week's pace, lending fees and interest, and the $BORRO Drip at today's rate with the lent part counted 1.5x). With a wallet, its part of each farm.",
+    "inputSchema": {
+     "type": "object",
+     "properties": {
+      "symbol": {
+       "type": "string",
+       "description": "One stock's farm (optional), by its ticker, like NVDA; farms lists the stocks that have one"
+      },
+      "wallet": {
+       "type": "string",
+       "description": "A wallet whose part of each farm to show (optional)"
+      }
+     }
+    },
+    "annotations": {
+     "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
+     "openWorldHint": false
+    }
+   },
+   {
+    "name": "farm_deposit",
+    "title": "Prepare: put money into a farm",
+    "description": "Unsigned transactions to put USDG and a stock into its farm from the wallet: give usdg or stock (or both) and the other follows the farm's ratio (the feed's price for the first deposit, which sets the farm's price). Approvals of the exact amounts first, then the deposit, simulated from the wallet. Shares are accepted down to slip_bps under the quote.",
+    "inputSchema": {
+     "type": "object",
+     "properties": {
+      "wallet": {
+       "type": "string",
+       "description": "The wallet's address (0x...); the transactions are built for it to sign"
+      },
+      "symbol": {
+       "type": "string",
+       "description": "A stock on Borro by its ticker, like NVDA or AAPL (markets lists every one)"
+      },
+      "usdg": {
+       "type": "string",
+       "description": "USDG to put in (optional if stock is given), in whole units as a decimal string, like \"1.5\""
+      },
+      "stock": {
+       "type": "string",
+       "description": "Stock to put in (optional if usdg is given), in whole units as a decimal string, like \"1.5\""
+      },
+      "slip_bps": {
+       "type": "integer",
+       "description": "Most the farm may move against the quote, in hundredths of a percent (default 50, 0.5%)"
+      }
+     },
+     "required": [
+      "wallet",
+      "symbol"
+     ]
+    },
+    "annotations": {
+     "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
+     "openWorldHint": false
+    }
+   },
+   {
+    "name": "farm_withdraw",
+    "title": "Prepare: take money out of a farm",
+    "description": "Unsigned transaction to take part or all of the wallet's money out of a farm. Run from the wallet first to show what comes back now, and what comes as the vault's own shares because borrowers have it out (they keep earning and redeem on Supply once it is free). Always works: never paused, no price feed needed.",
+    "inputSchema": {
+     "type": "object",
+     "properties": {
+      "wallet": {
+       "type": "string",
+       "description": "The wallet's address (0x...); the transactions are built for it to sign"
+      },
+      "symbol": {
+       "type": "string",
+       "description": "A stock on Borro by its ticker, like NVDA or AAPL (markets lists every one)"
+      },
+      "percent": {
+       "type": "number",
+       "description": "How much of the wallet's part to take out, 1 to 100 (default 100)"
+      },
+      "slip_bps": {
+       "type": "integer",
+       "description": "Least accepted under the preview, in hundredths of a percent (default 50, 0.5%)"
+      }
+     },
+     "required": [
+      "wallet",
+      "symbol"
+     ]
+    },
+    "annotations": {
+     "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
+     "openWorldHint": false
+    }
+   },
+   {
+    "name": "weekend",
+    "title": "The Weekend Desk",
+    "description": "While the stock market is shut (Friday 8pm to Sunday 8pm New York, and holidays) the price feeds stop at their last print. For each stock: the paused price, Borro's weekend price and 95% band (low, high), its typical Monday gap and the last closures' gaps, and the gap cover quotes per side and strike. Also the market clock (closed since, reopens at) and the gap cover pool: what is in it, free and set aside, Borro's share, and one yearly number for what the pool earned. Nothing on chain reads the weekend price.",
+    "inputSchema": {
+     "type": "object",
+     "properties": {
+      "symbol": {
+       "type": "string",
+       "description": "One stock (optional), by its ticker, like NVDA; with a pool, its quotes are read from the chain"
+      }
+     }
+    },
+    "annotations": {
+     "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
+     "openWorldHint": false
+    }
+   },
+   {
+    "name": "buy_cover",
+    "title": "Prepare: buy gap cover",
+    "description": "Unsigned transactions to buy Monday-gap cover on a stock while the market is shut (until an hour before the reopen): side up pays if the first feed print after the reopen is more than the strike above the last print (cover for a short), down if it is more than the strike below (for a long); it pays the move beyond the strike, times the cover, up to the pool's cap. Approve exactly the premium, then buy with that premium as the most it may take. Simulated from the wallet.",
+    "inputSchema": {
+     "type": "object",
+     "properties": {
+      "wallet": {
+       "type": "string",
+       "description": "The wallet's address (0x...); the transactions are built for it to sign"
+      },
+      "symbol": {
+       "type": "string",
+       "description": "A stock on Borro by its ticker, like NVDA or AAPL (markets lists every one)"
+      },
+      "side": {
+       "type": "string",
+       "enum": [
+        "up",
+        "down"
+       ],
+       "description": "up (pays on a gap up: for a short) or down (on a gap down: for a long)"
+      },
+      "notional": {
+       "type": "string",
+       "description": "Cover, in USDG: for a short, about what the shares are worth, in whole units as a decimal string, like \"1.5\""
+      },
+      "strike_bps": {
+       "type": "integer",
+       "description": "How far the stock must move before it pays, in hundredths of a percent: 100, 200, 300 or 500 are quoted (default 200, 2%)"
+      }
+     },
+     "required": [
+      "wallet",
+      "symbol",
+      "side",
+      "notional"
+     ]
+    },
+    "annotations": {
+     "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
+     "openWorldHint": false
+    }
+   },
+   {
+    "name": "deposit_cover",
+    "title": "Prepare: fund the gap cover pool",
+    "description": "Unsigned transactions to put USDG into the gap cover pool, which backs every cover and keeps the premiums (less Borro's share) on top of the Steakhouse USDG vault's interest. Approve exactly the amount, then deposit. A big gap pays covers out of the pool.",
+    "inputSchema": {
+     "type": "object",
+     "properties": {
+      "wallet": {
+       "type": "string",
+       "description": "The wallet's address (0x...); the transactions are built for it to sign"
+      },
+      "amount": {
+       "type": "string",
+       "description": "USDG to deposit, in whole units as a decimal string, like \"1.5\""
+      }
+     },
+     "required": [
+      "wallet",
+      "amount"
+     ]
+    },
+    "annotations": {
+     "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
+     "openWorldHint": false
+    }
+   },
+   {
+    "name": "withdraw_cover",
+    "title": "Prepare: withdraw from the gap cover pool",
+    "description": "Unsigned transaction to take USDG out of the gap cover pool, an amount or all: true. Capital is locked while covers are live, from the first buy of a closure until Monday's settlement; withdraw during the week. Run from the wallet first to show what comes back.",
+    "inputSchema": {
+     "type": "object",
+     "properties": {
+      "wallet": {
+       "type": "string",
+       "description": "The wallet's address (0x...); the transactions are built for it to sign"
+      },
+      "amount": {
+       "type": "string",
+       "description": "USDG to withdraw, in whole units as a decimal string, like \"1.5\""
+      },
+      "all": {
+       "type": "boolean",
+       "description": "Withdraw everything this wallet has in the pool (only when it is all free)"
+      }
+     },
+     "required": [
+      "wallet"
+     ]
+    },
+    "annotations": {
+     "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
+     "openWorldHint": false
+    }
+   },
+   {
+    "name": "settle_cover",
+    "title": "Prepare: settle gap cover",
+    "description": "Unsigned transaction settling a cover with the feed's first round at or after its reopen (found by walking back from the latest round), with what it pays the buyer. Anyone may send it; the payout always goes to the buyer. When that first print came more than two hours after the reopen, or more than 50% from the reference, or never came in seven days, the transaction voids the cover instead (the premium the pool kept goes back).",
+    "inputSchema": {
+     "type": "object",
+     "properties": {
+      "wallet": {
+       "type": "string",
+       "description": "The address that will send it (any address; the payout goes to the cover's buyer)"
+      },
+      "id": {
+       "type": "string",
+       "description": "The cover's number (position lists a wallet's covers)"
+      }
+     },
+     "required": [
+      "wallet",
+      "id"
+     ]
+    },
+    "annotations": {
+     "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
+     "openWorldHint": false
+    }
+   },
+   {
+    "name": "claim_cover",
+    "title": "Prepare: claim a waiting payout",
+    "description": "Unsigned transaction taking USDG a settled or voided cover could not send to the wallet (it waits in the pool's owed); position shows owed_usdg.",
+    "inputSchema": {
+     "type": "object",
+     "properties": {
+      "wallet": {
+       "type": "string",
+       "description": "The wallet's address (0x...); the transactions are built for it to sign"
+      }
+     },
+     "required": [
+      "wallet"
+     ]
+    },
+    "annotations": {
+     "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
+     "openWorldHint": false
+    }
+   },
+   {
+    "name": "options",
+    "title": "The Options Desk",
+    "description": "One stock's options chain for this Friday and next (expiry Friday 8pm New York): per strike and side the series id, Borro's fair value (Black-Scholes from the stock's own measured volatility, a guide), delta, the best ask and bid (checked on chain), the IV the ask implies, the shares written and the last traded IV; the stock's price, its volatility a year and the last traded IV; and whether the desk is live, paused and its fee. Prices are dollars a share, premiums USDG a share.",
+    "inputSchema": {
+     "type": "object",
+     "properties": {
+      "symbol": {
+       "type": "string",
+       "description": "A stock on Borro by its ticker, like NVDA or AAPL (markets lists every one)"
+      }
+     },
+     "required": [
+      "symbol"
+     ]
+    },
+    "annotations": {
+     "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
+     "openWorldHint": false
+    }
+   },
+   {
+    "name": "write_option",
+    "title": "Prepare: write a call or a put",
+    "description": "Unsigned transactions to write options from the wallet: post an ask at a premium (the collateral is locked now; it fills when a buyer takes it), or with order_id sell into that bid now and receive its premium less Borro's share. A call locks one share of the stock's Borro vault per share written: from the stock (lent into its vault in the same transaction, the default) or from vault shares held (bNVDA). A put locks the strike in USDG in the Steakhouse vault: from USDG (the default) or that vault's shares held. Exact approval of the lock, then the call; simulated from the wallet.",
+    "inputSchema": {
+     "type": "object",
+     "properties": {
+      "wallet": {
+       "type": "string",
+       "description": "The wallet's address (0x...); the transactions are built for it to sign"
+      },
+      "symbol": {
+       "type": "string",
+       "description": "A stock on Borro by its ticker, like NVDA or AAPL (markets lists every one)"
+      },
+      "type": {
+       "type": "string",
+       "enum": [
+        "call",
+        "put"
+       ],
+       "description": "call or put"
+      },
+      "expiry": {
+       "type": "string",
+       "description": "this (the nearest Friday still taking orders, the default), next, or a Friday's date like 2026-10-16"
+      },
+      "strike": {
+       "type": "string",
+       "description": "The strike in dollars, on the $0.25 tick, like \"250\""
+      },
+      "shares": {
+       "type": "string",
+       "description": "Shares to write (at least 0.001), in whole units as a decimal string, like \"1.5\""
+      },
+      "premium": {
+       "type": "string",
+       "description": "Premium you ask, USDG a share (for an ask), in whole units as a decimal string, like \"1.5\""
+      },
+      "from": {
+       "type": "string",
+       "enum": [
+        "stock",
+        "shares",
+        "usdg"
+       ],
+       "description": "Where the lock comes from: a call stock (default) or shares; a put usdg (default) or shares"
+      },
+      "order_id": {
+       "type": "string",
+       "description": "Sell into this bid instead of posting an ask (its series, its premium)"
+      }
+     },
+     "required": [
+      "wallet",
+      "symbol",
+      "shares"
+     ]
+    },
+    "annotations": {
+     "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
+     "openWorldHint": false
+    }
+   },
+   {
+    "name": "buy_option",
+    "title": "Prepare: buy a call or a put",
+    "description": "Unsigned transactions to buy options from the best ask of a series (or a given ask with order_id), checked on chain: exact approval of the premium, then fillAsk with that premium as the most it may take. A fill takes the whole ask or leaves at least 0.001 of a share. Returns the cost, Borro's share, the break-even and what it pays at expiry.",
+    "inputSchema": {
+     "type": "object",
+     "properties": {
+      "wallet": {
+       "type": "string",
+       "description": "The wallet's address (0x...); the transactions are built for it to sign"
+      },
+      "symbol": {
+       "type": "string",
+       "description": "A stock on Borro by its ticker, like NVDA or AAPL (markets lists every one)"
+      },
+      "type": {
+       "type": "string",
+       "enum": [
+        "call",
+        "put"
+       ],
+       "description": "call or put"
+      },
+      "expiry": {
+       "type": "string",
+       "description": "this (default), next, or a Friday's date like 2026-10-16"
+      },
+      "strike": {
+       "type": "string",
+       "description": "The strike in dollars, like \"250\""
+      },
+      "shares": {
+       "type": "string",
+       "description": "Shares to buy, in whole units as a decimal string, like \"1.5\""
+      },
+      "order_id": {
+       "type": "string",
+       "description": "Buy from this ask instead of the best one"
+      },
+      "max_premium": {
+       "type": "string",
+       "description": "The most to pay in all, USDG (optional), in whole units as a decimal string, like \"1.5\""
+      }
+     },
+     "required": [
+      "wallet",
+      "symbol",
+      "shares"
+     ]
+    },
+    "annotations": {
+     "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
+     "openWorldHint": false
+    }
+   },
+   {
+    "name": "post_bid",
+    "title": "Prepare: bid for options",
+    "description": "Unsigned transactions to post a bid for a series at a premium a share: the premium for all the shares is locked now in USDG (exact approval, then postBid) and goes to the writer who fills it, less Borro's share; the option tokens come to this wallet. cancel_order takes it back while it is open.",
+    "inputSchema": {
+     "type": "object",
+     "properties": {
+      "wallet": {
+       "type": "string",
+       "description": "The wallet's address (0x...); the transactions are built for it to sign"
+      },
+      "symbol": {
+       "type": "string",
+       "description": "A stock on Borro by its ticker, like NVDA or AAPL (markets lists every one)"
+      },
+      "type": {
+       "type": "string",
+       "enum": [
+        "call",
+        "put"
+       ],
+       "description": "call or put"
+      },
+      "expiry": {
+       "type": "string",
+       "description": "this (default), next, or a Friday's date like 2026-10-16"
+      },
+      "strike": {
+       "type": "string",
+       "description": "The strike in dollars, like \"250\""
+      },
+      "shares": {
+       "type": "string",
+       "description": "Shares to bid for, in whole units as a decimal string, like \"1.5\""
+      },
+      "premium": {
+       "type": "string",
+       "description": "Premium you bid, USDG a share, in whole units as a decimal string, like \"1.5\""
+      }
+     },
+     "required": [
+      "wallet",
+      "symbol",
+      "type",
+      "strike",
+      "shares",
+      "premium"
+     ]
+    },
+    "annotations": {
+     "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
+     "openWorldHint": false
+    }
+   },
+   {
+    "name": "cancel_order",
+    "title": "Prepare: cancel an order",
+    "description": "Unsigned transaction cancelling an ask or a bid: what it still locks goes back to its maker (an ask's collateral, a bid's USDG). Only the maker may, until the series expires; then anyone may.",
+    "inputSchema": {
+     "type": "object",
+     "properties": {
+      "wallet": {
+       "type": "string",
+       "description": "The wallet's address (0x...); the transactions are built for it to sign"
+      },
+      "order_id": {
+       "type": "string",
+       "description": "The order's number (position lists this wallet's open orders)"
+      }
+     },
+     "required": [
+      "wallet",
+      "order_id"
+     ]
+    },
+    "annotations": {
+     "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
+     "openWorldHint": false
+    }
+   },
+   {
+    "name": "settle_series",
+    "title": "Prepare: settle an expired series",
+    "description": "Unsigned transaction settling a series after its Friday 8pm New York expiry with the feed's last round at or before it, found by walking back from the latest round, once the proof holds (the next round printed after expiry, or it is the feed's latest); when the feed printed nothing in the two days before expiry, with its first round after. Gives the settlement price and what it pays a share. Fourteen days after expiry with no round to prove a price it builds void(id) instead. Anyone may send either.",
+    "inputSchema": {
+     "type": "object",
+     "properties": {
+      "wallet": {
+       "type": "string",
+       "description": "The address that will send it (any address)"
+      },
+      "series_id": {
+       "type": "string",
+       "description": "The series id (or symbol, expiry, strike and type instead)"
+      },
+      "symbol": {
+       "type": "string",
+       "description": "A stock on Borro by its ticker, like NVDA or AAPL (markets lists every one)"
+      },
+      "expiry": {
+       "type": "string",
+       "description": "A Friday's date like 2026-10-16"
+      },
+      "strike": {
+       "type": "string",
+       "description": "The strike in dollars"
+      },
+      "type": {
+       "type": "string",
+       "enum": [
+        "call",
+        "put"
+       ],
+       "description": "call or put"
+      }
+     },
+     "required": [
+      "wallet"
+     ]
+    },
+    "annotations": {
+     "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
+     "openWorldHint": false
+    }
+   },
+   {
+    "name": "claim_option",
+    "title": "Prepare: claim a settled option",
+    "description": "Unsigned transaction burning the wallet's tokens of a settled series and taking what they pay: a call pays the stock's Borro vault shares, a put USDG (or the Steakhouse vault's shares with as_shares, for when the vault is short of free USDG). All the wallet holds unless shares is given.",
+    "inputSchema": {
+     "type": "object",
+     "properties": {
+      "wallet": {
+       "type": "string",
+       "description": "The wallet's address (0x...); the transactions are built for it to sign"
+      },
+      "series_id": {
+       "type": "string",
+       "description": "The series id (position lists them)"
+      },
+      "shares": {
+       "type": "string",
+       "description": "Shares to claim (optional, default all), in whole units as a decimal string, like \"1.5\""
+      },
+      "as_shares": {
+       "type": "boolean",
+       "description": "A put: take Steakhouse USDG vault shares instead of USDG"
+      }
+     },
+     "required": [
+      "wallet",
+      "series_id"
+     ]
+    },
+    "annotations": {
+     "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
+     "openWorldHint": false
+    }
+   },
+   {
+    "name": "release_collateral",
+    "title": "Prepare: take back a writer's lock",
+    "description": "Unsigned transaction giving a writer back the lock of a settled series less what its written options pay, once: stock vault shares for a call, Steakhouse USDG vault shares for a put.",
+    "inputSchema": {
+     "type": "object",
+     "properties": {
+      "wallet": {
+       "type": "string",
+       "description": "The wallet's address (0x...); the transactions are built for it to sign"
+      },
+      "series_id": {
+       "type": "string",
+       "description": "The series id (position lists them)"
+      }
+     },
+     "required": [
+      "wallet",
+      "series_id"
+     ]
+    },
+    "annotations": {
+     "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
+     "openWorldHint": false
+    }
+   },
+   {
+    "name": "credit_markets",
+    "title": "Agent credit: the markets",
+    "description": "Agent Credit Lines: an agent posts its AI credits (Orbio CREDIT) and borrows USDG against them inside limits its owner sets once: a ceiling, a daily limit, a target LTV and an allowlist. markets: every market lines can open in now, each with its price, one yearly borrow rate (borrow_apr), its LLTV and max target and trigger, its defaults (CREDIT: 18% and 27%, with sales), the lending cap and any write-off. For CREDIT besides, as before: the feed's 2-hour median, its anchor, the last minute's and the pool's price, the line check price, whether the price has started and anything to know (a write-off proposed or in force, a pool with no data), the depth gate, what is lent, borrowed and free, the 90% most, the room under Borro's USDG vault caps, and the contracts. gas_stations: the factory and the station rules ($100 a day by default, $5,000 at most on a line with a station on its allowlist). Before the market is on chain: the pool's price and how lines will work. Policy credit: an agent that has claimed a policy in the registry opens with the policy's earned daily default for its rung (newborn 100, proven 250, established 500 USDG; rung 0 at most 250, rung 1 at most 500, rung 2 at most 1,000) when that is more than the station rule's; the policy tool reads a policy's record.",
+    "inputSchema": {
+     "type": "object",
+     "properties": {}
+    },
+    "annotations": {
+     "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
+     "openWorldHint": false
+    }
+   },
+   {
+    "name": "credit_line",
+    "title": "Agent credit: a line",
+    "description": "One agent credit line (account) or the lines a wallet owns (owner: five a call, newest first; page 2 for the next five): its market, credits posted, USDG owed, LTV against its target, trigger and LLTV, a health word, what the agent can still borrow, the daily limit and what went out and is left of it today, the price at which it can be liquidated, its agent, keeper, owner, allowlist and sale settings, the agent's gas station and whether it is allowlisted, USDG it holds, and whether protect would act now. holder: what holding $BORRO gets this line (Hold $BORRO. Borrow for less.): up to half its interest back every Monday, what Borro's keeper makes if it liquidates the line unless it was left short or left bad debt, and where switched on gas on the house; counts (Borro's keeper counted it on the last day it counted), share, via (owner or agent: whichever has the larger share), heldBorro (wallet plus own lock), borroForFull ($BORRO for the full rate at today's price), weekSoFarUsdg, interestBackBps (the part of the line's interest that would come back, up to 5000; share and interestBackBps are estimates if held through a whole UTC day) and gasOnTheHouse (only where switched on, and only for a counted line owing gas.minDebtUsdg, 25 USDG by default, or more whose holder holds at least gas.minShare, half by default, of the $BORRO its lines' full rate needs, within weekly limits); live false until Borro's keeper publishes its count.",
+    "inputSchema": {
+     "type": "object",
+     "properties": {
+      "account": {
+       "type": "string",
+       "description": "A line's address"
+      },
+      "owner": {
+       "type": "string",
+       "description": "A wallet whose lines to list"
+      },
+      "page": {
+       "type": "integer",
+       "description": "With owner: which five lines, newest first (default 1)"
+      }
+     }
+    },
+    "annotations": {
+     "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
+     "openWorldHint": false
+    }
+   },
+   {
+    "name": "holder_benefits",
+    "title": "Hold $BORRO. Borrow for less.",
+    "description": "Hold $BORRO. Borrow for less. What a wallet's $BORRO gets it on Agent Credit Lines, with or without lines. Keep $BORRO in the wallet that borrows (its own BorroLock lock counts as held) and its lines get, always: (1) up to half their interest back every Monday, in USDG: the full rate when it holds $BORRO worth a quarter of what its lines owe together, proportionally less with less; (2) liquidation profit back: when Borro's keeper liquidates a line, what it makes comes back, in proportion to the holding, unless the line was left short or left bad debt. And where switched on (rules.gas says whether it is): (3) gas on the house: on a line owing gas.minDebtUsdg (25 USDG by default) or more, while the holder holds at least gas.minShare (half by default) of the $BORRO its lines' full rate needs, Borro tops up the agent's wallet when it runs low on ETH (the owner's, if the agent has not borrowed on the line within 7 days), within weekly limits, if it is a plain wallet (no smart-account code). Send the $BORRO away and it stops (and forfeits that part of the week's unpaid benefits). Nothing to sign, lock or stake. Answers live (false until Borro's keeper publishes its count; until then nothing is counted or paid), counts (what Borro's keeper counted on the last day it counted), share, via, heldBorro, borroForFull ($BORRO for the full rate at today's price) and borro_to_add_for_full, covers_debt_usdg (the most its lines may owe at the full rate), weekSoFarUsdg, interestBackBps, gasOnTheHouse, each line with what it owes and its rate back, each market's Borro-run supply share (interest paid to anyone else's direct supply, or to the wallet's own part of Borro's USDG vault, gets nothing back), the rules and the paid weeks; share and the rates are estimates if held through a whole UTC day. With borrow_usdg: the same for a planned borrow on top. It reads; it builds no transaction.",
+    "inputSchema": {
+     "type": "object",
+     "properties": {
+      "wallet": {
+       "type": "string",
+       "description": "The wallet's address (0x...); the transactions are built for it to sign"
+      },
+      "borrow_usdg": {
+       "type": "string",
+       "description": "Optional: a planned borrow in USDG, to see the $BORRO its full rate needs, in whole units as a decimal string, like \"1.5\""
+      }
+     },
+     "required": [
+      "wallet"
+     ]
+    },
+    "annotations": {
+     "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
+     "openWorldHint": false
+    }
+   },
+   {
+    "name": "credit_open",
+    "title": "Prepare: open an agent credit line, post or borrow",
+    "description": "Unsigned transactions. Without account: open a line owned by the signing wallet for an agent (never the wallet itself), in a market credit_markets lists (\"CREDIT\", the default), post its credits and optionally borrow USDG at once (to the wallet unless to names an allowlisted address); exact credit approval to the factory first. The owner's limits: ceiling (USDG, default the most the target allows today), daily_limit (USDG out in any 24 hours, borrows and the agent's withdrawals together, or \"none\"; default the ceiling, or $100 with a gas station; at most $5,000 with one), target_ltv (a fraction under 1 like 0.18, or a percent with its sign like \"18%\"; the market's default, 0.18 for CREDIT, at most the market's max trigger), trigger_ltv for protect (by the market's rule; CREDIT: the target plus 7 points, at least 0.27 and at most 0.3), allow (addresses borrowed USDG may go to, 16 at most), gas_station (true: put the agent's gas station on the allowlist), bills (true: bill pay, the agent's own wallet on the allowlist, for x402 bills through credit_bill; the daily limit then defaults to $100), keeper (\"borro\", the default, \"none\" or an address), sell_bps and slip_bps for protect's sales (CREDIT defaults 2500 and 300; 0 in a market with no pool). With account: post more credits (anyone) and/or borrow (the line's agent or owner) to an allowed address. A wallet holding $BORRO borrows for less once Holder Credit counts it (holder_benefits). Refuses locally what the line would refuse (over the daily limit, the ceiling or the target, during a write-off, past what the market has free, past 90% used, past what the depth gate allows, before CREDIT's price starts); simulated from the wallet. Check each transaction's to: the factory, a line the factory confirms (isAccount), or the credit for an exact approval. Policy credit: when the agent has claimed a policy in the registry and the line has a gas station or bill pay, its default daily limit is the policy's earned default for the claim's rung (the policy tool shows it) whenever that is more, capped by the ceiling, and daily_limit_note names the policy, its tier and the rung.",
+    "inputSchema": {
+     "type": "object",
+     "properties": {
+      "wallet": {
+       "type": "string",
+       "description": "The wallet's address (0x...); the transactions are built for it to sign"
+      },
+      "account": {
+       "type": "string",
+       "description": "An existing line: post more and/or borrow from it (leave out to open a new line)"
+      },
+      "market": {
+       "type": "string",
+       "description": "New line: which market, by its symbol in credit_markets (default CREDIT)"
+      },
+      "agent": {
+       "type": "string",
+       "description": "New line: the agent's address, the wallet that will borrow from it (not the owner's)"
+      },
+      "credits": {
+       "type": "string",
+       "description": "Credits to post, in whole units as a decimal string, like \"1.5\""
+      },
+      "borrow": {
+       "type": "string",
+       "description": "USDG to borrow now (optional), in whole units as a decimal string, like \"1.5\""
+      },
+      "to": {
+       "type": "string",
+       "description": "Where borrowed USDG goes: the owner or an allowlisted address (default the wallet, or the owner)"
+      },
+      "ceiling": {
+       "type": "string",
+       "description": "New line: the most USDG the line may owe (optional), in whole units as a decimal string, like \"1.5\""
+      },
+      "daily_limit": {
+       "type": "string",
+       "description": "New line: the most USDG out in any 24 hours, like \"100\", or \"none\" (default the ceiling; $100 with a gas station, at most $5,000)"
+      },
+      "target_ltv": {
+       "anyOf": [
+        {
+         "type": "number"
+        },
+        {
+         "type": "string"
+        }
+       ],
+       "description": "New line: target LTV, a fraction under 1 like 0.18 or a percent with its sign like \"18%\" (the market's default: 0.18 for CREDIT)"
+      },
+      "trigger_ltv": {
+       "anyOf": [
+        {
+         "type": "number"
+        },
+        {
+         "type": "string"
+        }
+       ],
+       "description": "New line: LTV above which the keeper may protect it (default by the market's rule)"
+      },
+      "allow": {
+       "type": "array",
+       "items": {
+        "type": "string"
+       },
+       "description": "New line: addresses borrowed USDG may go to (16 at most)"
+      },
+      "gas_station": {
+       "type": "boolean",
+       "description": "New line: put the agent's gas station on the allowlist, so the agent can borrow its own gas (credit_gas)"
+      },
+      "bills": {
+       "type": "boolean",
+       "description": "New line: bill pay, the agent's own wallet on the allowlist, so it can borrow what it is short of an x402 bill (credit_bill); the line then needs a daily limit ($100 unless given)"
+      },
+      "keeper": {
+       "type": "string",
+       "description": "New line: \"borro\" (Borro's keeper, the default), \"none\", or an address"
+      },
+      "sell_bps": {
+       "type": "integer",
+       "description": "New line: most of the credits one protect sale may sell, in hundredths of a percent (0 to 2500; CREDIT default 2500; 0 in a market with no pool)"
+      },
+      "slip_bps": {
+       "type": "integer",
+       "description": "New line: most a protect sale may fill under the feed's price, in hundredths of a percent (0 to 1000, default 300)"
+      }
+     },
+     "required": [
+      "wallet"
+     ]
+    },
+    "annotations": {
+     "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
+     "openWorldHint": false
+    }
+   },
+   {
+    "name": "credit_pay",
+    "title": "Prepare: pay from an agent credit line",
+    "description": "One unsigned borrow from a line straight to a payee on its allowlist (or its owner): the line's agent or owner signs it, the USDG goes from Morpho to the payee, and the line owes it until repaid. Checked as the line checks it: the allowlist, a write-off, what is left of the daily limit today, the ceiling, the target LTV at today's price, the market's 90% and depth gate; simulated from the wallet. Check the transaction's to: a line the factory confirms (isAccount).",
+    "inputSchema": {
+     "type": "object",
+     "properties": {
+      "wallet": {
+       "type": "string",
+       "description": "The wallet's address (0x...); the transactions are built for it to sign"
+      },
+      "account": {
+       "type": "string",
+       "description": "The line's address"
+      },
+      "to": {
+       "type": "string",
+       "description": "The payee: an address on the line's allowlist, or its owner"
+      },
+      "amount": {
+       "type": "string",
+       "description": "USDG to pay, in whole units as a decimal string, like \"1.5\""
+      }
+     },
+     "required": [
+      "wallet",
+      "account",
+      "to",
+      "amount"
+     ]
+    },
+    "annotations": {
+     "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
+     "openWorldHint": false
+    }
+   },
+   {
+    "name": "credit_gas",
+    "title": "Prepare: gas for an agent, from its line",
+    "description": "Unsigned transactions that turn a line's credit into ETH in its agent's own wallet: make the agent's gas station if it has no code yet (anyone may; the station is the GasStationFactory's predict of the agent's wallet, never an address given), borrow amount USDG from the line to the station (the agent or the owner; the station must be on the allowlist), then pump(minOut, maxIn) by its full signature, with maxIn everything the station will hold and minOut a tenth of a percent under the pool's own fill for that size (never under the station's Chainlink floor). No amount: pump what the station already holds (anyone may). If ETH's price feed has been stale for 4 days, release() instead, sending the station's USDG to the agent's wallet as it is. Simulated from the wallet.",
+    "inputSchema": {
+     "type": "object",
+     "properties": {
+      "wallet": {
+       "type": "string",
+       "description": "The wallet's address (0x...); the transactions are built for it to sign"
+      },
+      "account": {
+       "type": "string",
+       "description": "The line's address"
+      },
+      "amount": {
+       "type": "string",
+       "description": "USDG to borrow to the agent's gas station (optional; without it, pump what the station holds), in whole units as a decimal string, like \"1.5\""
+      }
+     },
+     "required": [
+      "wallet",
+      "account"
+     ]
+    },
+    "annotations": {
+     "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
+     "openWorldHint": false
+    }
+   },
+   {
+    "name": "credit_bill",
+    "title": "Prepare: pay an x402 bill from an agent credit line",
+    "description": "Pay a merchant's x402 bill (HTTP 402 Payment Required) in USDG on Robinhood Chain from an agent credit line. Give the 402's payment_required (its PAYMENT-REQUIRED header value, or its JSON body); the bill is its exact-scheme USDG option on eip155:4663, refused in words if it has none or asks more than max_usdg. The wallet is the payer and must be the line's agent or owner: if it holds less USDG than the bill, one unsigned borrow of just what it is short, from the line to the wallet itself (the wallet must be on the line's allowlist: bill pay, credit_guardrails bills: true; checked as the line checks it and simulated). Returns the EIP-3009 authorization and its typed_data to sign (eth_signTypedData_v4) and the steps: send the borrow, sign, call credit_bill_header, send the request again with its header before valid_until.",
+    "inputSchema": {
+     "type": "object",
+     "properties": {
+      "wallet": {
+       "type": "string",
+       "description": "The payer's address (0x...): the line's agent, or its owner"
+      },
+      "account": {
+       "type": "string",
+       "description": "The line's address"
+      },
+      "payment_required": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "object"
+        }
+       ],
+       "description": "The merchant's 402: its PAYMENT-REQUIRED header value (base64), or its JSON body"
+      },
+      "max_usdg": {
+       "type": "string",
+       "description": "The most to pay for this one bill (optional; refused above it), in whole units as a decimal string, like \"1.5\""
+      }
+     },
+     "required": [
+      "wallet",
+      "account",
+      "payment_required"
+     ]
+    },
+    "annotations": {
+     "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
+     "openWorldHint": false
+    }
+   },
+   {
+    "name": "credit_bill_header",
+    "title": "The x402 payment header for a signed bill",
+    "description": "After credit_bill and the wallet's signature: the header the merchant reads (PAYMENT-SIGNATURE, or X-PAYMENT for x402 version 1), base64 JSON with the authorization and signature. Reads no chain and sends nothing: checks the authorization against the bill (the merchant's payTo, exactly its amount, not run out) and recovers a 65-byte signature to its payer. Send the same request again with header.name set to header.value.",
+    "inputSchema": {
+     "type": "object",
+     "properties": {
+      "payment_required": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "object"
+        }
+       ],
+       "description": "The same payment_required given to credit_bill"
+      },
+      "authorization": {
+       "anyOf": [
+        {
+         "type": "object"
+        },
+        {
+         "type": "string"
+        }
+       ],
+       "description": "The authorization credit_bill returned, as it returned it"
+      },
+      "signature": {
+       "type": "string",
+       "description": "The wallet's signature of credit_bill's typed_data (0x hex)"
+      }
+     },
+     "required": [
+      "payment_required",
+      "authorization",
+      "signature"
+     ]
+    },
+    "annotations": {
+     "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
+     "openWorldHint": false
+    }
+   },
+   {
+    "name": "credit_repay",
+    "title": "Prepare: repay an agent credit line",
+    "description": "Unsigned transactions repaying a line's USDG debt from the wallet (anyone may): an amount, or amount \"all\"; exact USDG approval to the line first (all: the debt plus a hundredth of a percent for interest until it lands; repay takes only what is owed). With close: true (a JSON boolean; the owner only): repay everything and take every credit and any USDG left back to the wallet. With unwind: true (a JSON boolean; the owner only; a line whose market has a pool): no USDG needed, the line sells its own CREDIT in its pool into the debt (sellAndRepay: by default enough to repay it all, at a minimum of the whole debt, then closes the line; sell and min_usdg to choose). Repaying, closing and an unwind at the whole debt work before CREDIT's price starts and during a write-off too. Check each transaction's to: a line the factory confirms (isAccount), or USDG for an exact approval.",
+    "inputSchema": {
+     "type": "object",
+     "properties": {
+      "wallet": {
+       "type": "string",
+       "description": "The wallet's address (0x...); the transactions are built for it to sign"
+      },
+      "account": {
+       "type": "string",
+       "description": "The line's address"
+      },
+      "amount": {
+       "type": "string",
+       "description": "USDG to repay, or \"all\", in whole units as a decimal string, like \"1.5\""
+      },
+      "close": {
+       "type": "boolean",
+       "description": "The owner: repay everything and take every credit back"
+      },
+      "unwind": {
+       "type": "boolean",
+       "description": "The owner: sell the line's CREDIT into its debt, no USDG needed"
+      },
+      "sell": {
+       "type": "string",
+       "description": "With unwind: CREDIT to sell, or \"all\" (default: enough for the whole debt), in whole units as a decimal string, like \"1.5\""
+      },
+      "min_usdg": {
+       "type": "string",
+       "description": "With unwind: the least USDG the sale must bring (default: the whole debt when selling all or the default amount, else 97% of the pool's price), in whole units as a decimal string, like \"1.5\""
+      },
+      "then_close": {
+       "type": "boolean",
+       "description": "With unwind: close the line after (default true when the sale covers the debt)"
+      }
+     },
+     "required": [
+      "wallet",
+      "account"
+     ]
+    },
+    "annotations": {
+     "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
+     "openWorldHint": false
+    }
+   },
+   {
+    "name": "credit_guardrails",
+    "title": "Prepare: change an agent credit line's limits",
+    "description": "One unsigned configure() transaction for the line's owner, starting from the line's current settings: agent (or revoke_agent: true, a JSON boolean, at once; never the owner's own wallet), keeper (\"borro\", \"none\" or an address), ceiling (USDG), daily_limit (USDG, or \"none\"), target_ltv and trigger_ltv (at most the line's max trigger, 30% for CREDIT; a new target over the line's trigger moves the trigger by the market's rule), sell_bps (0 in a market with no pool), slip_bps, allow (add addresses), deny (take them off), gas_station (true adds the agent's gas station, false takes it off), bills (true: bill pay, the agent's own wallet on the allowlist so it can borrow what it is short of an x402 bill, credit_bill; false takes it off; such a line needs a daily limit, $100 unless given). When the agent changes, the old agent's gas station and own wallet come off the allowlist in the same transaction and the new agent's go on in their place. A line with a gas station on its allowlist keeps a daily limit of at most $5,000 ($100 unless given). Checked as the line checks it; shows before and after. Ownership: transfer_to (the owner offers the line), or accept: true (the wallet it was offered to takes it with acceptOwnership, then names Borro's keeper again with setKeeper: two transactions sent one after the other; accepting clears the keeper, so until the second is sent the line has no keeper and no auto-repay; keeper: \"none\" leaves it off). Check each transaction's to: a line the factory confirms (isAccount).",
+    "inputSchema": {
+     "type": "object",
+     "properties": {
+      "wallet": {
+       "type": "string",
+       "description": "The wallet's address (0x...); the transactions are built for it to sign"
+      },
+      "account": {
+       "type": "string",
+       "description": "The line's address"
+      },
+      "agent": {
+       "type": "string",
+       "description": "A new agent address"
+      },
+      "revoke_agent": {
+       "type": "boolean",
+       "description": "Revoke the agent at once"
+      },
+      "keeper": {
+       "type": "string",
+       "description": "\"borro\", \"none\" or an address"
+      },
+      "ceiling": {
+       "type": "string",
+       "description": "The most USDG the line may owe, in whole units as a decimal string, like \"1.5\""
+      },
+      "daily_limit": {
+       "type": "string",
+       "description": "The most USDG out in any 24 hours, like \"100\", or \"none\""
+      },
+      "target_ltv": {
+       "anyOf": [
+        {
+         "type": "number"
+        },
+        {
+         "type": "string"
+        }
+       ],
+       "description": "Target LTV, a fraction under 1 like 0.18 or a percent with its sign like \"18%\""
+      },
+      "trigger_ltv": {
+       "anyOf": [
+        {
+         "type": "number"
+        },
+        {
+         "type": "string"
+        }
+       ],
+       "description": "Protect trigger LTV, at or above the target, like 0.27 or \"27%\""
+      },
+      "sell_bps": {
+       "type": "integer",
+       "description": "0 to 2500 (0 in a market with no pool)"
+      },
+      "slip_bps": {
+       "type": "integer",
+       "description": "0 to 1000"
+      },
+      "allow": {
+       "type": "array",
+       "items": {
+        "type": "string"
+       },
+       "description": "Addresses to add to the allowlist"
+      },
+      "deny": {
+       "type": "array",
+       "items": {
+        "type": "string"
+       },
+       "description": "Addresses to take off it"
+      },
+      "gas_station": {
+       "type": "boolean",
+       "description": "true: put the agent's gas station on the allowlist; false: take it off"
+      },
+      "bills": {
+       "type": "boolean",
+       "description": "true: bill pay, the agent's own wallet on the allowlist (credit_bill); false: take it off"
+      },
+      "transfer_to": {
+       "type": "string",
+       "description": "The owner: offer the line to this address (it becomes theirs when they accept)"
+      },
+      "accept": {
+       "type": "boolean",
+       "description": "The wallet the line is offered to: accept it, then name Borro's keeper again"
+      }
+     },
+     "required": [
+      "wallet",
+      "account"
+     ]
+    },
+    "annotations": {
+     "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
+     "openWorldHint": false
+    }
+   },
+   {
+    "name": "hold_open",
+    "title": "Prepare: put a hold on a Borro position",
+    "description": "Unsigned transactions putting part of the wallet's Borro position on hold for one payee, up to a cap in USDG and until an expiry, while the shares keep earning (the vault's interest or lending fees, and the $BORRO Drip). vault: \"USDG\" (the default: usdg, the cap unless given, goes into bUSDG and the hold is those shares, openWithUsdg) or a stock's ticker (shares of its Borro vault the wallet holds, \"all\" or an amount; worth more than the cap at the vault's cover). mode: \"metered\" (the default: x402 requests paid with vouchers, hold_pay) or \"charge\" (the payee charges up to the cap). With payment_required (a merchant's 402 offering the borro-hold scheme) the payee, the vaults it takes, the least cap and life are the merchant's. expiry_seconds: up to 90 days (default the merchant's, else a day). The payer cannot take the shares back before the expiry and a 4-day grace after it, in which the payee may still collect; the payee or its operator can release them any time, and after the grace anyone can reclaim them for the payer. The terms the payer accepts (the stock's desk, the most slippage on its sales, the most fee) come from the vault's listing and the fee now, and max_slip_bps or max_fee_bps tighten them; they are fixed for the hold's life. An exact approval to BorroHolds comes before it when one is missing; simulated from the wallet. Returns the hold's id.",
+    "inputSchema": {
+     "type": "object",
+     "properties": {
+      "wallet": {
+       "type": "string",
+       "description": "The wallet's address (0x...); the transactions are built for it to sign"
+      },
+      "payee": {
+       "type": "string",
+       "description": "Who the hold pays (or give payment_required)"
+      },
+      "payment_required": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "object"
+        }
+       ],
+       "description": "A merchant's 402 PaymentRequired (its PAYMENT-REQUIRED header value or JSON body) offering borro-hold"
+      },
+      "cap": {
+       "type": "string",
+       "description": "The most USDG the payee can ever be paid from the hold, in whole units as a decimal string, like \"1.5\""
+      },
+      "vault": {
+       "type": "string",
+       "description": "\"USDG\" (default) or a stock's ticker, like NVDA"
+      },
+      "usdg": {
+       "type": "string",
+       "description": "USDG hold: the USDG to put in (default: the cap and 0.000002 for the vault's rounding), in whole units as a decimal string, like \"1.5\""
+      },
+      "shares": {
+       "type": "string",
+       "description": "Stock (or bUSDG) hold: the vault shares to hold, like \"0.5\", or \"all\""
+      },
+      "expiry_seconds": {
+       "type": "integer",
+       "description": "How long the hold lasts, in seconds (60 to 7776000)"
+      },
+      "mode": {
+       "type": "string",
+       "enum": [
+        "metered",
+        "charge"
+       ],
+       "description": "metered (default) or charge"
+      },
+      "operator": {
+       "type": "string",
+       "description": "Charge mode: an address that may charge and release for the payee"
+      },
+      "salt": {
+       "type": "string",
+       "description": "32 bytes of 0x hex for the hold's id (default: fresh)"
+      },
+      "max_slip_bps": {
+       "type": "integer",
+       "description": "The most slippage the payer accepts on a stock hold's sales, in basis points (default: the listing's now)"
+      },
+      "max_fee_bps": {
+       "type": "integer",
+       "description": "The most fee the payer accepts, in basis points (default: BorroHolds' fee now)"
+      }
+     },
+     "required": [
+      "wallet"
+     ]
+    },
+    "annotations": {
+     "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
+     "openWorldHint": false
+    }
+   },
+   {
+    "name": "hold_pay",
+    "title": "Prepare: pay an x402 request from a hold",
+    "description": "The voucher for one x402 request (HTTP 402 offering the borro-hold scheme): the typed data the hold's payer signs, saying what it owes the merchant in all on the hold, counted on from the last voucher Borro's facilitator accepted (or what the hold has paid on chain, if more). Give payment_required and hold (its id), or wallet to use its newest hold the merchant takes. Refused in words when the hold cannot pay it (another payee, a vault the merchant does not take, too close to its expiry, its cap used, too little value) or the request costs more than max_usdg. Nothing is sent: sign typed_data (eth_signTypedData_v4), then hold_header.",
+    "inputSchema": {
+     "type": "object",
+     "properties": {
+      "payment_required": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "object"
+        }
+       ],
+       "description": "The 402's PaymentRequired (PAYMENT-REQUIRED header value or JSON body)"
+      },
+      "hold": {
+       "type": "string",
+       "description": "The hold's id (hold_open returned it)"
+      },
+      "wallet": {
+       "type": "string",
+       "description": "The payer: finds its hold for this merchant when hold is not given"
+      },
+      "max_usdg": {
+       "type": "string",
+       "description": "The most one request may cost, in whole units as a decimal string, like \"1.5\""
+      }
+     },
+     "required": [
+      "payment_required"
+     ]
+    },
+    "annotations": {
+     "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
+     "openWorldHint": false
+    }
+   },
+   {
+    "name": "hold_header",
+    "title": "The x402 payment header for a signed voucher",
+    "description": "After hold_pay and the payer's signature: the header the merchant reads (PAYMENT-SIGNATURE, or X-PAYMENT for x402 version 1), base64 JSON with the voucher { hold, cumulative, signature }. Reads no chain and sends nothing; recovers a 65-byte signature to the hold's payer. Send the same request again with header.name set to header.value.",
+    "inputSchema": {
+     "type": "object",
+     "properties": {
+      "payment_required": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "object"
+        }
+       ],
+       "description": "The same payment_required given to hold_pay"
+      },
+      "voucher": {
+       "anyOf": [
+        {
+         "type": "object"
+        },
+        {
+         "type": "string"
+        }
+       ],
+       "description": "The voucher hold_pay returned, as it returned it"
+      },
+      "signature": {
+       "type": "string",
+       "description": "The payer's signature of hold_pay's typed_data (0x hex)"
+      }
+     },
+     "required": [
+      "payment_required",
+      "voucher",
+      "signature"
+     ]
+    },
+    "annotations": {
+     "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
+     "openWorldHint": false
+    }
+   },
+   {
+    "name": "hold_status",
+    "title": "Holds: one, or a wallet's",
+    "description": "A hold on BorroHolds by its id, or the newest 10 a payer opened or that pay a payee: payer, payee, vault, mode, cap, paid, shares and their value in USDG, the cover, the expiry and the payee's 4-day grace after it, the terms fixed when it opened (desk, slippage, fee), USDG BorroHolds credited to the payer with its claim transaction, and for metered holds what Borro's facilitator has accepted in vouchers, what is owed and not collected yet, and the last voucher (hold_collect sends it; it pays the payee).",
+    "inputSchema": {
+     "type": "object",
+     "properties": {
+      "hold": {
+       "type": "string",
+       "description": "A hold's id"
+      },
+      "payer": {
+       "type": "string",
+       "description": "A payer's address"
+      },
+      "payee": {
+       "type": "string",
+       "description": "A payee's address"
+      }
+     }
+    },
+    "annotations": {
+     "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
+     "openWorldHint": false
+    }
+   },
+   {
+    "name": "hold_collect",
+    "title": "Prepare: collect from a hold",
+    "description": "One unsigned transaction paying a hold's payee. Metered: settle with the latest voucher (cumulative and signature, or by default the last one Borro's facilitator accepted); until the expiry anyone may send it, in the 4-day grace after it the payee or its operator, and the USDG goes to the payee. Charge: charge an amount (default all the cap has left), the payee or its operator, until the grace ends. A stock hold sells stock along its desk's route, while the market is open. When the vault can pay out part of it, it pays that much and the rest can be collected later; in_shares true (the payee or its operator) pays the vault's shares instead, which needs no liquidity (a stock hold's at its feed with BorroHolds' constant pad of 0.5% (PAD_BPS, 50 bps), while the market is open: shares worth the amount divided by one plus the pad, the whole amount counted as paid; the payee bears the pad whenever it collects a stock hold in kind). Simulated from the wallet, with what the payee gets after the hold's fee.",
+    "inputSchema": {
+     "type": "object",
+     "properties": {
+      "wallet": {
+       "type": "string",
+       "description": "The wallet's address (0x...); the transactions are built for it to sign"
+      },
+      "hold": {
+       "type": "string",
+       "description": "The hold's id"
+      },
+      "cumulative": {
+       "type": "string",
+       "description": "Metered: the voucher's cumulative, in USDG's smallest units"
+      },
+      "signature": {
+       "type": "string",
+       "description": "Metered: the voucher's signature"
+      },
+      "amount": {
+       "type": "string",
+       "description": "Charge mode: USDG to charge, in whole units as a decimal string, like \"1.5\""
+      },
+      "in_shares": {
+       "type": "boolean",
+       "description": "Pay the payee the vault's shares worth the amount (a stock hold's divided by one plus the constant 0.5% (PAD_BPS, 50 bps) pad; the payee or its operator)"
+      }
+     },
+     "required": [
+      "wallet",
+      "hold"
+     ]
+    },
+    "annotations": {
+     "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
+     "openWorldHint": false
+    }
+   },
+   {
+    "name": "hold_end",
+    "title": "Prepare: end a hold",
+    "description": "One unsigned transaction ending a hold: release (its payee or operator, any time) or, after the expiry and the payee's 4-day grace, reclaim (anyone). Either way every share left goes back to the payer. Until then the payer cannot end it. Warns when releasing would give up accepted vouchers nobody has collected.",
+    "inputSchema": {
+     "type": "object",
+     "properties": {
+      "wallet": {
+       "type": "string",
+       "description": "The wallet's address (0x...); the transactions are built for it to sign"
+      },
+      "hold": {
+       "type": "string",
+       "description": "The hold's id"
+      }
+     },
+     "required": [
+      "wallet",
+      "hold"
+     ]
+    },
+    "annotations": {
+     "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
+     "openWorldHint": false
+    }
+   },
+   {
+    "name": "account_open",
+    "title": "Prepare: open a trade account",
+    "description": "Unsigned transaction opening the wallet's version 2 trade account (a TradeAccountV2, one per owner, made by TradeAccountFactoryV2): a trade account with Bailouts, where the owner may post standing offers that pay rescuers to save a position instead of letting it be liquidated (bailout_offer). An agent may be named: an optional second key, never the wallet itself, that can open and close positions within its slippage of the stock's feed, set triggers and cancel the ones it set, post offers within the owner's cap, and send money out to the owner alone. Positions opened inside the account can carry triggers (stop-loss, take-profit, liquidation guard) that anyone can execute for a tip once the price feed confirms them; positions opened from the wallet cannot (close them and open them again inside). Whenever no bailout is owed the owner can take everything out at any time and nobody, Borro included, can stop that; while one is owed, the owner's way out is to pay it (bailout_repay), which lifts the lien at once. A version 1 account the wallet holds stays as it is and keeps working; the other trade tools take either. With a version 2 account open already: agent names a new agent (the old agent's triggers and offers are cancelled with it), revoke_agent: true revokes it at once; account names which of the wallet's accounts to change (default its version 2 one). The owner's settings, on a new account or an open one: the agent's limits (agent_slip_bps, agent_max_tip_bps, agent_max_margin_usdg, agent_daily_loss_usdg, agent_restricted; the agent opens nothing, takes no deposit out, sets no trigger and posts no offer until it has a daily loss budget, and closes whatever the budget; it tips nothing until it has a max tip), agent_bailout_max_usdg (the most an agent's offer may put at stake, 0 by default: none) and max_slip_bps, how far a stop's or a guard's fire bound may widen past its slip (while an offer is live or a bailout is owed it may come down and never up). Simulated from the wallet.",
+    "inputSchema": {
+     "type": "object",
+     "properties": {
+      "wallet": {
+       "type": "string",
+       "description": "The wallet's address (0x...); the transactions are built for it to sign"
+      },
+      "agent": {
+       "type": "string",
+       "description": "The agent's address (optional): a second key that may trade the account and set triggers, never the wallet itself"
+      },
+      "revoke_agent": {
+       "type": "boolean",
+       "description": "With an account open: revoke its agent at once"
+      },
+      "agent_slip_bps": {
+       "type": "integer",
+       "description": "The most the agent's trades and triggers may price from the feed, in hundredths of a percent (100 to 300, default 100)"
+      },
+      "agent_max_tip_bps": {
+       "type": "integer",
+       "description": "The most tip the agent's triggers may pay executors (a share of the closed notional at the feed, capped (tip_bps, at most 50 basis points, and never more than the USDG the close returns)), in hundredths of a percent (0 to 50, default 0: its triggers then pay none)"
+      },
+      "agent_max_margin_usdg": {
+       "type": "string",
+       "description": "The most equity one position may hold after the agent's trade, or \"none\" (default none), in whole units as a decimal string, like \"1.5\""
+      },
+      "agent_daily_loss_usdg": {
+       "type": "string",
+       "description": "The most the agent's fills (and the fires of the triggers it set) may cost against the feed in all each UTC day, renewed at 00:00 UTC (default 0: no agent opens, deposit withdrawals or triggers; its closes run whatever the budget), in whole units as a decimal string, like \"1.5\""
+      },
+      "agent_restricted": {
+       "type": "boolean",
+       "description": "true: the agent opens on the desks the owner allows (setAgentMay) alone"
+      },
+      "max_slip_bps": {
+       "type": "integer",
+       "description": "How far a stop's or a guard's fire bound may widen past its slip over time, in hundredths of a percent (0: no further, up to 1000)"
+      },
+      "account": {
+       "type": "string",
+       "description": "Which of the wallet's trade accounts to change (default its version 2 account; give its version 1 account to change that one)"
+      },
+      "agent_bailout_max_usdg": {
+       "type": "string",
+       "description": "Version 2: the most an offer the agent posts may put at stake (max_usdg), or \"none\" (default none: the agent posts no offers), in whole units as a decimal string, like \"1.5\""
+      }
+     },
+     "required": [
+      "wallet"
+     ]
+    },
+    "annotations": {
+     "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
+     "openWorldHint": false
+    }
+   },
+   {
+    "name": "account_trade",
+    "title": "Prepare: trade through the trade account",
+    "description": "Unsigned transactions to open or close a short or a leveraged long through the trade account: the same trades as open_short, close_short, open_long and close_long, with the account as the trader. action open_short (symbol, amount, deposit), close_short (symbol: all of the account's short on it), open_long (symbol, margin, leverage) or close_long (symbol, percent). The account pays from its own USDG; when it holds too little, a USDG transfer from the wallet to the account comes before the trade (from the agent's wallet with fund_from_wallet: true alone, since the agent's own USDG then becomes the owner's and can go out to the owner alone, never back to the agent). What a close returns stays in the account as USDG (account_withdraw takes it out). The wallet must be the account's owner or its agent; the agent's trades must price within its slippage of the stock's feed (refused in words when the pool is further off). The agent's opens need room in the daily loss budget the owner set: refused in words when it is 0 or today's loss has reached it (until 00:00 UTC), and by the account when the open's own shortfall against the feed would pass it. Its closes run whatever the budget (any share, within its slip), counted into today's loss, past the budget by at most their own shortfall. The answer says how much of the budget is left.",
+    "inputSchema": {
+     "type": "object",
+     "properties": {
+      "wallet": {
+       "type": "string",
+       "description": "The wallet's address (0x...); the transactions are built for it to sign"
+      },
+      "account": {
+       "type": "string",
+       "description": "A trade account's address (default: the wallet's own, as its owner; an agent gives its owner's account)"
+      },
+      "action": {
+       "type": "string",
+       "enum": [
+        "open_short",
+        "close_short",
+        "open_long",
+        "close_long"
+       ],
+       "description": "open_short, close_short, open_long or close_long"
+      },
+      "symbol": {
+       "type": "string",
+       "description": "A stock on Borro by its ticker, like NVDA or AAPL (markets lists every one)"
+      },
+      "amount": {
+       "type": "string",
+       "description": "open_short: stock to short, in whole units as a decimal string, like \"1.5\""
+      },
+      "deposit": {
+       "type": "string",
+       "description": "open_short: USDG held beyond the sale (optional), in whole units as a decimal string, like \"1.5\""
+      },
+      "margin": {
+       "type": "string",
+       "description": "open_long: USDG margin, in whole units as a decimal string, like \"1.5\""
+      },
+      "leverage": {
+       "type": "number",
+       "description": "open_long: leverage, more than 1, like 1.5"
+      },
+      "percent": {
+       "type": "number",
+       "description": "close_long: how much to close, 1 to 100 (default 100)"
+      },
+      "fund_from_wallet": {
+       "type": "boolean",
+       "description": "The agent signing: true to send its own USDG into the owner's account when the account holds too little (it becomes the owner's; it can go out to the owner alone)"
+      }
+     },
+     "required": [
+      "wallet",
+      "action",
+      "symbol"
+     ]
+    },
+    "annotations": {
+     "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
+     "openWorldHint": false
+    }
+   },
+   {
+    "name": "trigger_set",
+    "title": "Prepare: set a stop-loss, take-profit or liquidation guard",
+    "description": "Unsigned transaction leaving an order on a position in the trade account, which anyone may execute once the price feed confirms it, for a tip. kind stop (stop-loss: a short's fires at or above price, a long's at or below), take (take-profit: the other way) or guard (liquidation guard: fires when the position's LTV, Morpho's own at the market's oracle, reaches ltv and closes just enough to bring it down to target; target under ltv under the position's LLTV). A stop or take closes percent of the position (default 100). slip_bps: the most the close may come in worse than the feed's price once the trigger is armed and its bound has widened (100 to 300, default 100; the agent's at most its own limit). tip_bps: the executor's tip, a share of the closed notional at the feed, capped (tip_bps, at most 50 basis points, and never more than the USDG the close returns) (default: the smallest that covers a fire's gas at today's gas and ETH prices, at least 10 from the owner; the agent's at most its max tip, 0 unless the owner set one). The answer says who will fire it: Borro's keeper fires a trigger whose tip covers its fire's gas (taken as 1,100,000 gas until the keeper screens the fire). A trigger whose tip does not cover its fire's gas (a zero tip included, any kind; an agent's trigger pays no tip past its daily loss budget until 00:00 UTC) is fired by Borro's keeper from its root owner's low-tip allowance alone: 0.0001 ETH of gas a UTC day (a few fires), its owner's alone. At most 40 root owners hold one a UTC day, by spending from it: a free one goes to a trigger that is ready and about to be fired, and to no other, in the keeper's owner order (a fire on record, then the least keeper work today, then the oldest trade account) and while its owner is under 200 units of keeper work that day, so the owners whose triggers fire earliest may take all 40 that day. Past it, the trigger is left to other executors. A close under $5 (dust) is left to other executors whatever the tip. Borro's keeper charges all its work on a trigger (screens, checks and simulations, 1 unit each; arms and resets, 5) to the trigger's root owner until the trigger fires, when it is given back. Owners go in this order: owners with a fire on record (a fire Borro's keeper itself sent for them and was paid for, its tip at least the fire's gas, in the last 30 days; fires by the account's own owner or agent, by other executors, or with no tip never count), then the least such work today, then the oldest trade account. Each fire on record also allows its owner one reserved arm or reset. An owner past 200 units a UTC day gets no more unpaid or subsidised keeper work that day (triggers on the low-tip allowance, arms, resets); a trigger whose tip covers its gas is never held back by it. Refused in words when its condition already holds (AlreadyMet) or when the pool cannot close its size within its slip at the price now (NeverFills, quoted at the pool); from the agent, also while its daily loss budget is 0 or today's loss has reached it (OverLossBudget, until 00:00 UTC). An agent-set trigger's tip to an outside executor is paid up to what is left of that budget at the fire and no more (the answer gives what is left now, and who fires it with that cap). expiry_seconds: 0 or left out is good until cancelled. At most 16 live triggers an account; each fires once, then is gone, and a position's triggers go when it closes. Triggers do not fire while the stock market is shut or the feed has not printed within 25 hours; a price crossed while it is shut (a weekend, a holiday) fires once the market opens again, at the price the feed prints then, within the trigger's slip, and after a gap that price can be well past the trigger's. Shows the price now and how far it is from the trigger, and warns when it would fire at once. Simulated from the wallet (the owner or the agent).",
+    "inputSchema": {
+     "type": "object",
+     "properties": {
+      "wallet": {
+       "type": "string",
+       "description": "The wallet's address (0x...); the transactions are built for it to sign"
+      },
+      "account": {
+       "type": "string",
+       "description": "A trade account's address (default: the wallet's own, as its owner; an agent gives its owner's account)"
+      },
+      "symbol": {
+       "type": "string",
+       "description": "A stock on Borro by its ticker, like NVDA or AAPL (markets lists every one)"
+      },
+      "side": {
+       "type": "string",
+       "enum": [
+        "short",
+        "long"
+       ],
+       "description": "short (the account's short on the stock) or long (its leveraged long)"
+      },
+      "kind": {
+       "type": "string",
+       "enum": [
+        "stop",
+        "take",
+        "guard"
+       ],
+       "description": "stop (stop-loss), take (take-profit) or guard (liquidation guard)"
+      },
+      "price": {
+       "type": "string",
+       "description": "stop or take: the stock's feed price in dollars that fires it, like \"190.5\""
+      },
+      "percent": {
+       "type": "number",
+       "description": "stop or take: how much of the position to close, more than 0 to 100 (default 100)"
+      },
+      "ltv": {
+       "anyOf": [
+        {
+         "type": "number"
+        },
+        {
+         "type": "string"
+        }
+       ],
+       "description": "guard: the LTV it fires at, a fraction like 0.55 or a percent with its sign like \"55%\""
+      },
+      "target": {
+       "anyOf": [
+        {
+         "type": "number"
+        },
+        {
+         "type": "string"
+        }
+       ],
+       "description": "guard: the LTV it closes down to, under ltv"
+      },
+      "slip_bps": {
+       "type": "integer",
+       "description": "The most the close may come in worse than the feed's price, in hundredths of a percent (100 to 300, default 100)"
+      },
+      "tip_bps": {
+       "type": "integer",
+       "description": "The executor's tip, a share of the closed notional at the feed, capped (tip_bps, at most 50 basis points, and never more than the USDG the close returns), in hundredths of a percent (default: the smallest that covers a fire's gas now)"
+      },
+      "expiry_seconds": {
+       "type": "integer",
+       "description": "How long it stays live, in seconds (0 or left out: until cancelled; at most a year)"
+      }
+     },
+     "required": [
+      "wallet",
+      "symbol",
+      "side",
+      "kind"
+     ]
+    },
+    "annotations": {
+     "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
+     "openWorldHint": false
+    }
+   },
+   {
+    "name": "trigger_list",
+    "title": "A trade account's triggers",
+    "description": "The live triggers on a trade account (account, or the wallet's own): each with its condition in words, the stock's price now and how far it is from firing (in dollars and percent; a guard's LTV now and about where the price takes it to its LTV), whether it holds now (the account's own check) and why not, who set it, its slip, tip and expiry, and the fire transaction anyone may send once it holds. Triggers do not fire while the stock market is shut or the feed has not printed within 25 hours; a price crossed while it is shut (a weekend, a holiday) fires once the market opens again, at the price the feed prints then, within the trigger's slip, and after a gap that price can be well past the trigger's.",
+    "inputSchema": {
+     "type": "object",
+     "properties": {
+      "account": {
+       "type": "string",
+       "description": "A trade account's address (default: the wallet's own, as its owner; an agent gives its owner's account)"
+      },
+      "wallet": {
+       "type": "string",
+       "description": "The account's owner (when account is not given)"
+      }
+     }
+    },
+    "annotations": {
+     "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
+     "openWorldHint": false
+    }
+   },
+   {
+    "name": "trigger_cancel",
+    "title": "Prepare: cancel a trigger",
+    "description": "Unsigned transaction cancelling a live trigger on the trade account: the owner cancels any, the agent the ones it set. Simulated from the wallet.",
+    "inputSchema": {
+     "type": "object",
+     "properties": {
+      "wallet": {
+       "type": "string",
+       "description": "The wallet's address (0x...); the transactions are built for it to sign"
+      },
+      "account": {
+       "type": "string",
+       "description": "A trade account's address (default: the wallet's own, as its owner; an agent gives its owner's account)"
+      },
+      "id": {
+       "type": "string",
+       "description": "The trigger's number (trigger_list shows it)"
+      }
+     },
+     "required": [
+      "wallet",
+      "id"
+     ]
+    },
+    "annotations": {
+     "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
+     "openWorldHint": false
+    }
+   },
+   {
+    "name": "trigger_fire",
+    "title": "Prepare: fire the triggers that hold now",
+    "description": "For executor agents: the triggers that hold right now by the account's own check (on one account, read on chain; or across every trade account as Borro's keeper publishes them at /triggers.json each minute while the market is open, with the few simulated here checked on chain again), each with the unsigned fire transaction from the wallet, simulated from it, and the tip it pays in USDG. Anyone may fire a trigger whose condition holds and is paid its tip: a share of the closed notional at the feed, capped (tip_bps, at most 50 basis points, and never more than the USDG the close returns) (the account's own agent firing earns nothing: its tip goes to the owner). The close goes through the account at the feed's price within the trigger's slip, the rest stays in the account, and nothing else moves. A trigger whose close would fail (slip, the pool, a paused desk) reverts and stays live. Its bound starts at 50 basis points past the feed until the trigger is armed, then widens: when it is not armed yet, the arm transaction (anyone may send it) comes before the fire, and bound says whether the pool's fill fits the bound now or from when. Send a fire with a gas limit of 3,000,000. Triggers do not fire while the stock market is shut or the feed has not printed within 25 hours; a price crossed while it is shut (a weekend, a holiday) fires once the market opens again, at the price the feed prints then, within the trigger's slip, and after a gap that price can be well past the trigger's. With account and id: that one trigger, refused in words when it does not hold. When none holds: the nearest ones and how far they are. Borro's keeper fires them too, by its own rules: Borro's keeper charges all its work on a trigger (screens, checks and simulations, 1 unit each; arms and resets, 5) to the trigger's root owner until the trigger fires, when it is given back. Owners go in this order: owners with a fire on record (a fire Borro's keeper itself sent for them and was paid for, its tip at least the fire's gas, in the last 30 days; fires by the account's own owner or agent, by other executors, or with no tip never count), then the least such work today, then the oldest trade account. Each fire on record also allows its owner one reserved arm or reset. An owner past 200 units a UTC day gets no more unpaid or subsidised keeper work that day (triggers on the low-tip allowance, arms, resets); a trigger whose tip covers its gas is never held back by it. A trigger whose tip does not cover its gas is fired by Borro's keeper from its root owner's low-tip allowance alone (0.0001 ETH of gas a UTC day, at most 40 root owners a day, in that owner order); any executor may fire it sooner for its tip.",
+    "inputSchema": {
+     "type": "object",
+     "properties": {
+      "wallet": {
+       "type": "string",
+       "description": "The executor's address (any address; the tip goes to it)"
+      },
+      "account": {
+       "type": "string",
+       "description": "One trade account (optional; default every account)"
+      },
+      "id": {
+       "type": "string",
+       "description": "With account: one trigger's number"
+      }
+     },
+     "required": [
+      "wallet"
+     ]
+    },
+    "annotations": {
+     "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
+     "openWorldHint": false
+    }
+   },
+   {
+    "name": "account_status",
+    "title": "A trade account",
+    "description": "A trade account (account, or the wallet's own): its owner, its agent and the agent's limits (with today's loss against its daily loss budget and what that still lets the agent do: opens, deposit withdrawals and trigger-sets while it has room; closes and top-ups always), the USDG and stock it holds, its shorts and leveraged longs with their LTV (Morpho's own), how much of their limit each uses and the price that liquidates it, which positions have no trigger, every live trigger with its distance from the price now, who can do what, and the market clock. Triggers do not fire while the stock market is shut or the feed has not printed within 25 hours; a price crossed while it is shut (a weekend, a holiday) fires once the market opens again, at the price the feed prints then, within the trigger's slip, and after a gap that price can be well past the trigger's.",
+    "inputSchema": {
+     "type": "object",
+     "properties": {
+      "account": {
+       "type": "string",
+       "description": "A trade account's address (default: the wallet's own, as its owner; an agent gives its owner's account)"
+      },
+      "wallet": {
+       "type": "string",
+       "description": "The account's owner (when account is not given), or a wallet to say whether it is the owner or the agent"
+      }
+     }
+    },
+    "annotations": {
+     "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
+     "openWorldHint": false
+    }
+   },
+   {
+    "name": "account_withdraw",
+    "title": "Prepare: take money out of the trade account",
+    "description": "Unsigned transaction taking money out of the trade account: USDG (the default), a stock by its ticker or any token by its address, an amount or all: true. The owner can send it to any address (default the owner) at any time, whatever the account holds open; the agent can send it to the owner alone. Simulated from the wallet.",
+    "inputSchema": {
+     "type": "object",
+     "properties": {
+      "wallet": {
+       "type": "string",
+       "description": "The wallet's address (0x...); the transactions are built for it to sign"
+      },
+      "account": {
+       "type": "string",
+       "description": "A trade account's address (default: the wallet's own, as its owner; an agent gives its owner's account)"
+      },
+      "token": {
+       "type": "string",
+       "description": "USDG (default), a stock's ticker, or a token's address"
+      },
+      "amount": {
+       "type": "string",
+       "description": "How much to take out, in whole units as a decimal string, like \"1.5\""
+      },
+      "all": {
+       "type": "boolean",
+       "description": "Everything the account holds of it"
+      },
+      "to": {
+       "type": "string",
+       "description": "Where it goes (default the owner; the agent may send to the owner alone)"
+      }
+     },
+     "required": [
+      "wallet"
+     ]
+    },
+    "annotations": {
+     "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
+     "openWorldHint": false
+    }
+   },
+   {
+    "name": "bailouts",
+    "title": "Bailouts: offers and what is owed",
+    "description": "Bailouts on a version 2 trade account (account, or the wallet's own): each live offer with its terms (at_ltv, to_ltv, max_usdg, fee_bps, term, expiry, foreclosure bound) and what a rescue takes now by the account's own lens (needed, and needed if the account's bUSDG cannot be redeemed when it lands; what to approve; what the account's free USDG and bUSDG put in ahead of the rescuer; the position's equity against the claim; past its LLTV or under water; an offer the account's bUSDG helps cover reads takeable; takeable or why not), and the bailout owed if any (the rescuer, the principal, what is owed now with the fee earned so far, maturity, whether the rescuer may foreclose now and within what bound). With wallet, also what the account keeps for that wallet to claim. With neither account nor wallet: the offers a rescuer can take across the newest 50 version 2 accounts, the takeable ones ahead, each with its prepare call (Borro's keeper lists every takeable offer at /jobs.json). A rescue is the rescuer's own USDG lent against the rescued position plus money that arrives in the account while it is owed: if the position is liquidated anyway the rescuer can lose it.",
+    "inputSchema": {
+     "type": "object",
+     "properties": {
+      "account": {
+       "type": "string",
+       "description": "A version 2 trade account (optional)"
+      },
+      "wallet": {
+       "type": "string",
+       "description": "The account's owner (when account is not given), or a wallet whose claims to show"
+      }
+     }
+    },
+    "annotations": {
+     "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
+     "openWorldHint": false
+    }
+   },
+   {
+    "name": "bailout_offer",
+    "title": "Prepare: post a Bailouts offer",
+    "description": "Unsigned transaction posting a standing offer on a position in the version 2 trade account: once its LTV (Morpho's own, at the market's oracle) reaches at_ltv, anyone may put in what brings it back to to_ltv, up to max_usdg; the account's own idle money goes in ahead of the rescuer, who is owed back ahead of the owner plus fee_bps of what it put in (1 to 2000), earned over term_days (1 to 30, default 7), and may foreclose on that position alone after the term. at_ltv under the position's LLTV, to_ltv under at_ltv; expiry_days (default 30) is when it lapses untaken. No money moves when it is posted. At most 4 live offers an account, one per position. While one is live, max_slip_bps and the agent's slip may come down and never up. From the agent: within the owner's cap (agent_bailout_max_usdg) and at least 10.0 USDG, on positions it may trade, at_ltv at least 200 bps over the position's LTV now, 2 times its fee on max_usdg counted into today's loss budget when posted. Refused in words when the position is not held, a bailout is owed, the position carries an offer, the bounds are off, or the agent's limits refuse it; warns when it is takeable at once or when max_usdg is short of what a rescue at at_ltv would take. Simulated from the wallet (the owner or the agent).",
+    "inputSchema": {
+     "type": "object",
+     "properties": {
+      "wallet": {
+       "type": "string",
+       "description": "The wallet's address (0x...); the transactions are built for it to sign"
+      },
+      "account": {
+       "type": "string",
+       "description": "A version 2 trade account's address (default: the wallet's own, as its owner; an agent gives its owner's account)"
+      },
+      "symbol": {
+       "type": "string",
+       "description": "A stock on Borro by its ticker, like NVDA or AAPL (markets lists every one)"
+      },
+      "side": {
+       "type": "string",
+       "enum": [
+        "short",
+        "long"
+       ],
+       "description": "short (the account's short on the stock) or long (its leveraged long)"
+      },
+      "at_ltv": {
+       "anyOf": [
+        {
+         "type": "number"
+        },
+        {
+         "type": "string"
+        }
+       ],
+       "description": "The LTV a rescue opens at: a fraction under 1, like 0.7 (a percent with its sign is taken too)"
+      },
+      "to_ltv": {
+       "anyOf": [
+        {
+         "type": "number"
+        },
+        {
+         "type": "string"
+        }
+       ],
+       "description": "The LTV a rescue must bring it back to, under at_ltv"
+      },
+      "max_usdg": {
+       "type": "string",
+       "description": "The most a rescuer may put in, in whole USDG as a decimal string, like \"250\""
+      },
+      "fee_bps": {
+       "type": "integer",
+       "description": "The rescuer's fee on what it puts in, earned over the term, in hundredths of a percent (1 to 2000)"
+      },
+      "term_days": {
+       "type": "number",
+       "description": "Days the owner has to repay before the rescuer may foreclose (1 to 30, default 7)"
+      },
+      "expiry_days": {
+       "type": "number",
+       "description": "Days until the offer lapses if no one takes it (default 30, at most 365)"
+      }
+     },
+     "required": [
+      "wallet",
+      "symbol",
+      "side",
+      "at_ltv",
+      "to_ltv",
+      "max_usdg",
+      "fee_bps"
+     ]
+    },
+    "annotations": {
+     "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
+     "openWorldHint": false
+    }
+   },
+   {
+    "name": "bailout_cancel",
+    "title": "Prepare: cancel a Bailouts offer",
+    "description": "Unsigned transaction cancelling a live offer on the version 2 trade account before anyone takes it: the owner cancels any, the agent the ones it posted. Simulated from the wallet.",
+    "inputSchema": {
+     "type": "object",
+     "properties": {
+      "wallet": {
+       "type": "string",
+       "description": "The wallet's address (0x...); the transactions are built for it to sign"
+      },
+      "account": {
+       "type": "string",
+       "description": "A version 2 trade account's address (default: the wallet's own, as its owner; an agent gives its owner's account)"
+      },
+      "offer_id": {
+       "type": "string",
+       "description": "The offer's number (bailouts shows each one's)"
+      }
+     },
+     "required": [
+      "wallet",
+      "offer_id"
+     ]
+    },
+    "annotations": {
+     "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
+     "openWorldHint": false
+    }
+   },
+   {
+    "name": "bailout",
+    "title": "Prepare: rescue a position (take a Bailouts offer)",
+    "description": "For rescuers: unsigned transactions taking an offer on a version 2 trade account, from the wallet's own USDG: an exact USDG approval to the account of what its lens says to approve (what the rescue takes if the account's bUSDG cannot be redeemed, plus 100 bps, for interest, the price and the vault before it lands), then bailout(offer_id, amount). The account works out what it takes when it lands: what brings the LTV to the offer's to_ltv plus 50 bps of it, less its own idle money, at most max_usdg; if the idle money alone does it, nothing is taken. Refused in words when the offer cannot be taken now (under its LTV, expired, a bailout owed already, over its max, the long's debt floor) or the wallet holds too little. The answer gives what you are owed (the principal, your part of the fee within a day and at maturity, Borro's cut of the fee, 1000 bps of it), the position's equity against the claim, and when you may foreclose. Rescues run at any hour. A rescue is the rescuer's own USDG lent against the rescued position plus money that arrives in the account while it is owed: if the position is liquidated anyway the rescuer can lose it. Borro's keeper never rescues. Simulated from the wallet.",
+    "inputSchema": {
+     "type": "object",
+     "properties": {
+      "wallet": {
+       "type": "string",
+       "description": "The wallet's address (0x...); the transactions are built for it to sign"
+      },
+      "account": {
+       "type": "string",
+       "description": "The version 2 trade account's address"
+      },
+      "offer_id": {
+       "type": "string",
+       "description": "The offer's number (bailouts shows each one's)"
+      },
+      "max_usdg": {
+       "type": "string",
+       "description": "The most the rescue may take from the wallet (default: the lens's approve), in whole USDG as a decimal string, like \"250\""
+      }
+     },
+     "required": [
+      "wallet",
+      "account",
+      "offer_id"
+     ]
+    },
+    "annotations": {
+     "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
+     "openWorldHint": false
+    }
+   },
+   {
+    "name": "bailout_repay",
+    "title": "Prepare: pay a bailout back",
+    "description": "Unsigned transactions paying the bailout owed on a version 2 trade account: from the wallet (the owner, usually; anyone may), an exact USDG approval to the account and payBailout, the rescuer ahead of Borro's cut, with an hour of the fee's growth allowed so it still pays it all when it lands (amount pays part); paid in full, the lien lifts at once. With from_account: true, repayBailout instead (anyone): it pays from what sits in the account, its free USDG and the bUSDG it takes, and once the rescued position has no debt left it hands that position's collateral to the rescuer as it is, up to what is owed, and ends the lien. Refused in words when nothing is owed. Simulated from the wallet.",
+    "inputSchema": {
+     "type": "object",
+     "properties": {
+      "wallet": {
+       "type": "string",
+       "description": "The wallet's address (0x...); the transactions are built for it to sign"
+      },
+      "account": {
+       "type": "string",
+       "description": "A version 2 trade account's address (default: the wallet's own, as its owner; an agent gives its owner's account)"
+      },
+      "amount": {
+       "type": "string",
+       "description": "How much to pay from the wallet (default: everything owed), in whole USDG as a decimal string, like \"250\""
+      },
+      "from_account": {
+       "type": "boolean",
+       "description": "true: settle from what sits in the account (repayBailout) instead of the wallet"
+      }
+     },
+     "required": [
+      "wallet"
+     ]
+    },
+    "annotations": {
+     "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
+     "openWorldHint": false
+    }
+   },
+   {
+    "name": "bailout_foreclose",
+    "title": "Prepare: foreclose on a rescued position",
+    "description": "For the rescuer, after maturity: an unsigned transaction foreclosing on the rescued position of a version 2 trade account (never the owner's other positions). The account's idle money pays ahead of the close; then it closes no more of the position than covers what is owed plus 50 bps (percent: less, if asked), bounded at the feed within 50 bps at maturity, widening to the offer's own bound over 35 minutes of trading time; what it returns pays the rescuer ahead of Borro's cut and the rest stays the owner's. The market must be open and the feed fresh. Refused in words before maturity, while the market is shut or the feed stale, when nothing is owed, or from any wallet but the rescuer's. Send with a gas limit of 4,000,000. Simulated from the wallet.",
+    "inputSchema": {
+     "type": "object",
+     "properties": {
+      "wallet": {
+       "type": "string",
+       "description": "The wallet's address (0x...); the transactions are built for it to sign"
+      },
+      "account": {
+       "type": "string",
+       "description": "The version 2 trade account's address"
+      },
+      "percent": {
+       "type": "number",
+       "description": "The most of the rescued position to close, more than 0 to 100 (default 100: what covers what is owed)"
+      }
+     },
+     "required": [
+      "wallet",
+      "account"
+     ]
+    },
+    "annotations": {
+     "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
+     "openWorldHint": false
+    }
+   },
+   {
+    "name": "bailout_claim",
+    "title": "Prepare: claim a payment a trade account keeps",
+    "description": "Unsigned transactions taking what a version 2 trade account keeps for the wallet: a bailout payment the wallet could not take when it was made (USDG had the wallet frozen, or the token refused the transfer), kept in the token it was paid in: USDG, bUSDG shares, a short's held money as BorroShort's vault shares, or a stock vault's shares from a long's in-kind settlement. One claim for each token the account keeps something of (token: one of them), to the wallet or to `to`. Refused in words when the account keeps nothing for it; while USDG has the wallet frozen the claim waits too (PayeeFrozen). Simulated from the wallet.",
+    "inputSchema": {
+     "type": "object",
+     "properties": {
+      "wallet": {
+       "type": "string",
+       "description": "The wallet's address (0x...); the transactions are built for it to sign"
+      },
+      "account": {
+       "type": "string",
+       "description": "The version 2 trade account's address"
+      },
+      "token": {
+       "type": "string",
+       "description": "USDG, bUSDG, held (BorroShort's vault shares), a stock's symbol (its vault's shares) or a token's address (default: every token kept for the wallet)"
+      },
+      "to": {
+       "type": "string",
+       "description": "Where it goes (default the wallet; neither the wallet nor to may be frozen by USDG)"
+      }
+     },
+     "required": [
+      "wallet",
+      "account"
+     ]
+    },
+    "annotations": {
+     "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
+     "openWorldHint": false
+    }
+   },
+   {
+    "name": "counterparty_check",
+    "title": "Check a counterparty's repayment record",
+    "description": "Another lender's repayment record of an agent or a wallet: Priors' record on Robinhood Chain (loans repaid and their USDG, loans open, any default, its Priors Score v2 and rung), read live from Priors' check API and given in Borro's own words. agent: an ERC-8004 agent id; address: a wallet (an agent's, a payee's, an x402 payTo), which finds the agents it owns or pays for (at most 3 shown, best rung ahead); exactly one. It is Priors' record, not Borro's, and Borro does not vouch for it: check_on_chain says how to read Priors' score from the ERC-8004 registry yourself. verdict: no record, no repayments yet, repaid or defaulted. proven is true when a listed agent has a published Priors Score v2 at rung 2 or more (proven: three or more backed repayments over 14 days or more, none late), no default and is not frozen; anything missing counts as not proven. credit_open, credit_line, credit_guardrails, credit_pay, credit_bill, hold_open and account_open show the same record as agent_record or payee_record when Priors answers within 2.5 seconds.",
+    "inputSchema": {
+     "type": "object",
+     "properties": {
+      "agent": {
+       "type": "string",
+       "description": "An ERC-8004 agent id, like \"462\""
+      },
+      "address": {
+       "type": "string",
+       "description": "A wallet: 0x and 40 hex characters"
+      }
+     }
+    },
+    "annotations": {
+     "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
+     "openWorldHint": true
+    }
+   },
+   {
+    "name": "keeper_jobs",
+    "title": "Keeper jobs: paid work open now",
+    "description": "Every paid job on Borro right now, in one list: the positions past their liquidation limit (from Borro's keeper's /jobs.json), the triggers holding now (from /triggers.json) and the Bailouts offers a rescuer can take now (from /jobs.json). A liquidation is paid from the liquidated position's collateral, a trigger by the tip its owner set, and a rescue by the fee its owner offered; Borro itself pays none of them. Each job says what it pays (an estimate from a simulation or the offer's terms, never a promise), its gas, how long it has been open, when Borro's keeper steps in (borro_keeper_acts_after: it is the backstop for liquidations and triggers, and it may give outside agents a head start; it never rescues, since Borro puts no capital in), and the call that prepares it (liquidate, trigger_fire or bailout). Liquidations need no money of your own: the market's liquidator takes the collateral, sells it, repays the debt and pays you what is left. A rescue is the one job that takes your own USDG: it is lent against the rescued position, owed back ahead of the owner with the offer's fee, and can be lost if the position is liquidated anyway. Reads no chain; says so when the lists are empty or stale.",
+    "inputSchema": {
+     "type": "object",
+     "properties": {}
+    },
+    "annotations": {
+     "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
+     "openWorldHint": false
+    }
+   },
+   {
+    "name": "liquidate",
+    "title": "Prepare: liquidate a position",
+    "description": "Unsigned transaction liquidating a position past its limit, through the market's own liquidator (anyone may call it, and it pays the caller): no money of the wallet's, Morpho hands over the collateral, it is sold, the debt repaid, and the rest goes to the wallet. market: a stock's symbol with side short or usdg, an agent credit market's symbol (as credit_markets lists them), or a market id (0x and 64 hex) for a coin short or a coin loan (a coin's address with side works too; keeper_jobs gives the arguments). Reads the position fresh from the chain, sizes it as Borro's keeper does, simulates it from the wallet, and sets minProfit to 90% of the simulated profit unless min_profit_usdg is given: under it the transaction reverts and costs the gas alone. Refused in words when the position is healthy, the profit is under min_profit_usdg, the stock vault has lent its stock out (CannotRedeem), or the market is not Borro's.",
+    "inputSchema": {
+     "type": "object",
+     "properties": {
+      "wallet": {
+       "type": "string",
+       "description": "The wallet that sends it and is paid"
+      },
+      "market": {
+       "type": "string",
+       "description": "A stock's symbol (like \"NVDA\", with side), an agent credit market's symbol, a market id (0x and 64 hex), or a coin's address (with side)"
+      },
+      "side": {
+       "type": "string",
+       "enum": [
+        "short",
+        "usdg"
+       ],
+       "description": "For a stock or a coin given by its address: short (it is borrowed) or usdg (USDG borrowed against it)"
+      },
+      "kind": {
+       "type": "string",
+       "enum": [
+        "stock",
+        "coin",
+        "credit"
+       ],
+       "description": "Optional, as /jobs.json's prepare gives it: checked against the market"
+      },
+      "borrower": {
+       "type": "string",
+       "description": "The position's owner on Morpho (for a stock short, the shorter's wallet or its BorroShort account)"
+      },
+      "min_profit_usdg": {
+       "type": "string",
+       "description": "The least USDG the wallet will take; less and it reverts (default 90% of the simulated profit)"
+      }
+     },
+     "required": [
+      "wallet",
+      "market",
+      "borrower"
+     ]
+    },
+    "annotations": {
+     "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
+     "openWorldHint": false
+    }
+   },
+   {
+    "name": "gaix_market",
+    "title": "gAIX loans: the market and a wallet's loan",
+    "description": "Borrowing USDG against Goldstein's gAIX (a tokenized index fund of AI and tech stock tokens): the price Borro lends at (what a share redeems for at Chainlink's stock prices, less the fund's redemption fee), whether borrowing is paused (every weekend, and whenever a basket price is out of date; repaying always works), the limit (LLTV) and the new-loan limit (three quarters of it), what a borrower pays a year from now on, what is free to borrow, and the fund's own NAV as context. With wallet: that wallet's loan (gAIX posted, what it is worth, what is owed, how much of the limit is used, what it can still borrow, the price at which it can be liquidated) and its gAIX and USDG.",
+    "inputSchema": {
+     "type": "object",
+     "properties": {
+      "wallet": {
+       "type": "string",
+       "description": "Optional: a wallet whose loan to read (0x...)"
+      }
+     }
+    },
+    "annotations": {
+     "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
+     "openWorldHint": false
+    }
+   },
+   {
+    "name": "gaix_borrow",
+    "title": "Prepare: post gAIX and borrow USDG",
+    "description": "Unsigned transactions to post gAIX as collateral and borrow USDG against it, from the wallet: approve gAIX to Morpho for exactly what is posted (when needed), post it, borrow. post and amount can each be given alone (post more to an open loan; borrow more against what is posted). Borrowing pauses every weekend and whenever a basket price is out of date (posting does not), and stops at three quarters of the limit. Simulated from the wallet.",
+    "inputSchema": {
+     "type": "object",
+     "properties": {
+      "wallet": {
+       "type": "string",
+       "description": "The wallet's address (0x...); the transactions are built for it to sign"
+      },
+      "post": {
+       "type": "string",
+       "description": "gAIX to post, in whole shares as a decimal string, like \"10\""
+      },
+      "amount": {
+       "type": "string",
+       "description": "USDG to borrow, as a decimal string, like \"250\""
+      }
+     },
+     "required": [
+      "wallet"
+     ]
+    },
+    "annotations": {
+     "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
+     "openWorldHint": false
+    }
+   },
+   {
+    "name": "gaix_repay",
+    "title": "Prepare: repay a gAIX loan and take gAIX back",
+    "description": "Unsigned transactions to repay a gAIX loan from the wallet (part, or all: true to clear it exactly) and, if asked, take gAIX back to the wallet (take_back: shares, or \"all\"). Repaying always works, weekends included; taking gAIX back while a loan stays open pauses every weekend and whenever a basket price is out of date, and keeps the loan under three quarters of its limit. Simulated from the wallet.",
+    "inputSchema": {
+     "type": "object",
+     "properties": {
+      "wallet": {
+       "type": "string",
+       "description": "The wallet's address (0x...); the transactions are built for it to sign"
+      },
+      "amount": {
+       "type": "string",
+       "description": "USDG to repay, as a decimal string, like \"100\""
+      },
+      "all": {
+       "type": "boolean",
+       "description": "true repays everything owed"
+      },
+      "take_back": {
+       "type": "string",
+       "description": "gAIX to take back, in shares as a decimal string, or \"all\""
+      }
+     },
+     "required": [
+      "wallet"
+     ]
+    },
+    "annotations": {
+     "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
+     "openWorldHint": false
+    }
+   },
+   {
+    "name": "gaix_short_quote",
+    "title": "gAIX shorts: the desk, quotes and a wallet's short",
+    "description": "Shorting Goldstein's gAIX (a tokenized index fund of AI and tech stock tokens) with USDG, and lending gAIX to the shorts: whether the desk is open or paused (every weekend), gAIX's price, the limit and the room left for new shorts (book ceiling, a tenth of supply, gAIX lent), the rates for shorts and lenders, the bounds on the pool hook's charge. With sell or buy: what selling or buying that much gAIX through Goldstein's pool brings or costs, and the hook's charge. With wallet: its short (gAIX owed, USDG held, limit used, the price at which it can be closed for it), its gAIX in bgAIX and its balances.",
+    "inputSchema": {
+     "type": "object",
+     "properties": {
+      "wallet": {
+       "type": "string",
+       "description": "Optional: a wallet whose short and lending to read (0x...)"
+      },
+      "sell": {
+       "type": "string",
+       "description": "Optional: gAIX to quote a sale of (an open), like \"5\""
+      },
+      "buy": {
+       "type": "string",
+       "description": "Optional: gAIX to quote a purchase of (a close), like \"5\""
+      }
+     }
+    },
+    "annotations": {
+     "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
+     "openWorldHint": false
+    }
+   },
+   {
+    "name": "gaix_short_open",
+    "title": "Prepare: short gAIX",
+    "description": "Unsigned transactions to open (or add to) a gAIX short from the wallet: approve the USDG deposit (when needed), then open, which borrows the gAIX and sells it through Goldstein's pool, the sale money joining the deposit. Goes through when the hook takes at most 2% and the sale brings at least 95% of gAIX's price; stops at the desk's room and at three quarters of the limit; waits while the desk is paused. The open needs a gas limit of at least 12,000,000 (its transaction carries gas). Simulated from the wallet.",
+    "inputSchema": {
+     "type": "object",
+     "properties": {
+      "wallet": {
+       "type": "string",
+       "description": "The wallet's address (0x...); the transactions are built for it to sign"
+      },
+      "amount": {
+       "type": "string",
+       "description": "gAIX to short, as a decimal string, like \"5\""
+      },
+      "deposit": {
+       "type": "string",
+       "description": "USDG to deposit with it, as a decimal string, like \"200\""
+      }
+     },
+     "required": [
+      "wallet",
+      "amount"
+     ]
+    },
+    "annotations": {
+     "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
+     "openWorldHint": false
+    }
+   },
+   {
+    "name": "gaix_short_close",
+    "title": "Prepare: close a gAIX short through the pool",
+    "description": "Unsigned transactions to close a gAIX short through Goldstein's pool (amount: gAIX to buy back, or all: true): the gAIX is bought with the USDG held, any shortfall from the wallet, and what is left comes back. Goes through while the hook takes at most 4%; over that, or for a sliver of debt, use gaix_short_close_in_kind. While the desk is paused a close is whole. Simulated from the wallet.",
+    "inputSchema": {
+     "type": "object",
+     "properties": {
+      "wallet": {
+       "type": "string",
+       "description": "The wallet's address (0x...); the transactions are built for it to sign"
+      },
+      "amount": {
+       "type": "string",
+       "description": "gAIX to buy back, as a decimal string"
+      },
+      "all": {
+       "type": "boolean",
+       "description": "true closes or takes out everything"
+      }
+     },
+     "required": [
+      "wallet"
+     ]
+    },
+    "annotations": {
+     "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
+     "openWorldHint": false
+    }
+   },
+   {
+    "name": "gaix_short_close_in_kind",
+    "title": "Prepare: close a gAIX short in kind",
+    "description": "Unsigned transactions to close a gAIX short with gAIX the wallet brings (amount, or all: true): approve the gAIX, repay, take out the USDG it frees. No trade and no hook; a whole close reads no price, so it works on weekends and whatever the hook charges. Simulated from the wallet.",
+    "inputSchema": {
+     "type": "object",
+     "properties": {
+      "wallet": {
+       "type": "string",
+       "description": "The wallet's address (0x...); the transactions are built for it to sign"
+      },
+      "amount": {
+       "type": "string",
+       "description": "gAIX to repay, as a decimal string"
+      },
+      "all": {
+       "type": "boolean",
+       "description": "true closes or takes out everything"
+      }
+     },
+     "required": [
+      "wallet"
+     ]
+    },
+    "annotations": {
+     "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
+     "openWorldHint": false
+    }
+   },
+   {
+    "name": "gaix_short_deposit",
+    "title": "Prepare: add or take back USDG on a gAIX short",
+    "description": "Unsigned transactions to add USDG to the money held against a gAIX short (add) or take some back (take: USDG, or \"all\"). With a short open, what stays held keeps it under three quarters of its limit, and taking back waits while the desk is paused. Simulated from the wallet.",
+    "inputSchema": {
+     "type": "object",
+     "properties": {
+      "wallet": {
+       "type": "string",
+       "description": "The wallet's address (0x...); the transactions are built for it to sign"
+      },
+      "add": {
+       "type": "string",
+       "description": "USDG to add, as a decimal string"
+      },
+      "take": {
+       "type": "string",
+       "description": "USDG to take back, as a decimal string, or \"all\""
+      }
+     },
+     "required": [
+      "wallet"
+     ]
+    },
+    "annotations": {
+     "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
+     "openWorldHint": false
+    }
+   },
+   {
+    "name": "gaix_lend",
+    "title": "Prepare: lend gAIX to the shorts",
+    "description": "Unsigned transactions to lend gAIX from the wallet into bgAIX, the vault that lends it to gAIX shorts: approve the gAIX (when needed), deposit. What it earns moves with use. Simulated from the wallet.",
+    "inputSchema": {
+     "type": "object",
+     "properties": {
+      "wallet": {
+       "type": "string",
+       "description": "The wallet's address (0x...); the transactions are built for it to sign"
+      },
+      "amount": {
+       "type": "string",
+       "description": "gAIX to lend, as a decimal string, like \"10\""
+      }
+     },
+     "required": [
+      "wallet",
+      "amount"
+     ]
+    },
+    "annotations": {
+     "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
+     "openWorldHint": false
+    }
+   },
+   {
+    "name": "gaix_withdraw",
+    "title": "Prepare: take gAIX out of bgAIX",
+    "description": "Unsigned transactions to take gAIX out of bgAIX back to the wallet (amount, or all: true), as much as is not lent out to shorts right now. Simulated from the wallet.",
+    "inputSchema": {
+     "type": "object",
+     "properties": {
+      "wallet": {
+       "type": "string",
+       "description": "The wallet's address (0x...); the transactions are built for it to sign"
+      },
+      "amount": {
+       "type": "string",
+       "description": "gAIX to take out, as a decimal string"
+      },
+      "all": {
+       "type": "boolean",
+       "description": "true closes or takes out everything"
+      }
+     },
+     "required": [
+      "wallet"
+     ]
+    },
+    "annotations": {
+     "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
+     "openWorldHint": false
+    }
+   },
+   {
+    "name": "payto",
+    "title": "Receiving address: where to get paid so it earns",
+    "description": "A seller's receiving address on Borro: put it as payTo in your x402 offers (or as a payment channel's receiver, or a Borro hold's payee) and whatever USDG it is paid is swept into Borro's USDG vault, bUSDG, straight to the owner's wallet, so takings earn until spent. Gives the address (one per owner, known before it is made), whether it is made, the USDG waiting there, the owner's bUSDG and its worth, and the x402 fields to use. Pass wallet (the owner), or address (a receiving address, to find its owner).",
+    "inputSchema": {
+     "type": "object",
+     "properties": {
+      "wallet": {
+       "type": "string",
+       "description": "The owner's wallet (0x...)"
+      },
+      "address": {
+       "type": "string",
+       "description": "Or a receiving address (0x...), to read it and its owner"
+      }
+     }
+    },
+    "annotations": {
+     "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
+     "openWorldHint": false
+    }
+   },
+   {
+    "name": "payto_open",
+    "title": "Prepare: make a receiving address",
+    "description": "An unsigned transaction to make the wallet's receiving address (once; anyone may make it, and it always works for the owner and no one else). Payments sent to the address before it is made wait there and are swept once it is. Refuses owners whose address could never be spent from (the zero address, Borro's own contracts, another receiving address). Simulated from the wallet; nothing is sent.",
+    "inputSchema": {
+     "type": "object",
+     "properties": {
+      "wallet": {
+       "type": "string",
+       "description": "The wallet's address (0x...); the transactions are built for it to sign"
+      }
+     },
+     "required": [
+      "wallet"
+     ]
+    },
+    "annotations": {
+     "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
+     "openWorldHint": false
+    }
+   },
+   {
+    "name": "payto_sweep",
+    "title": "Prepare: sweep a receiving address into bUSDG now",
+    "description": "An unsigned transaction to sweep the USDG waiting at a receiving address into bUSDG for its owner now (making the address too, if it is not made yet). Borro's keeper sweeps on its own (about every five minutes once 1 USDG waits); this is for sooner. Any wallet may send it; the shares go to the owner. owner defaults to wallet. Simulated from the wallet; nothing is sent.",
+    "inputSchema": {
+     "type": "object",
+     "properties": {
+      "wallet": {
+       "type": "string",
+       "description": "The wallet's address (0x...); the transactions are built for it to sign"
+      },
+      "owner": {
+       "type": "string",
+       "description": "Optional: the owner whose address to sweep (0x...), when it is not the sending wallet"
+      }
+     },
+     "required": [
+      "wallet"
+     ]
+    },
+    "annotations": {
+     "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
+     "openWorldHint": false
+    }
+   },
+   {
+    "name": "payto_withdraw",
+    "title": "Prepare: take USDG (or a stray token) out of a receiving address",
+    "description": "An unsigned transaction for the owner to take what waits at its receiving address out to its own wallet: USDG as USDG before it is swept (token USDG, the default), or ETH or another ERC-20 token sent there by mistake (token ETH, or the token's address). amount is a decimal string, or \"all\" (the default) for whatever is there when it lands. USDG already swept is the wallet's bUSDG: redeem it from the vault with withdraw. Simulated from the wallet; nothing is sent.",
+    "inputSchema": {
+     "type": "object",
+     "properties": {
+      "wallet": {
+       "type": "string",
+       "description": "The wallet's address (0x...); the transactions are built for it to sign"
+      },
+      "token": {
+       "type": "string",
+       "description": "\"USDG\" (default), \"ETH\", or a token's address (0x...)"
+      },
+      "amount": {
+       "type": "string",
+       "description": "How much, as a decimal string, or \"all\" (default)"
+      }
+     },
+     "required": [
+      "wallet"
+     ]
+    },
+    "annotations": {
+     "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
+     "openWorldHint": false
+    }
+   },
+   {
+    "name": "darkroom_markets",
+    "title": "Zero Dark: the venue and its markets",
+    "description": "Zero Dark, Borro's dark pool for stock tokens on Robinhood Chain: whether it is open, the sessions and the next batch (a call auction per market once a minute in US regular hours, at the reference midpoint), each market's reference price and where it comes from, its book size (never depth), lot size and caps, the fee, and what is hidden and what is not.",
+    "inputSchema": {
+     "type": "object",
+     "properties": {}
+    },
+    "annotations": {
+     "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
+     "openWorldHint": false
+    }
+   },
+   {
+    "name": "darkroom_balance",
+    "title": "Zero Dark: a wallet's balances",
+    "description": "A wallet's Zero Dark balances (USDG and each market's stock): in Zero Dark, pending until the next batch, available for orders, and in the wallet. Orders draw on this balance at each batch; no order locks funds of its own.",
+    "inputSchema": {
+     "type": "object",
+     "properties": {
+      "wallet": {
+       "type": "string",
+       "description": "The wallet's address (0x...): the transactions are built for it to sign"
+      }
+     },
+     "required": [
+      "wallet"
+     ]
+    },
+    "annotations": {
+     "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
+     "openWorldHint": false
+    }
+   },
+   {
+    "name": "darkroom_deposit",
+    "title": "Prepare: deposit into Zero Dark",
+    "description": "Unsigned transactions to deposit USDG or a market's stock into the wallet's Zero Dark balance (or, with for, into another account's: anyone may fund an account, a session key included): approve exactly the amount when needed, then deposit. Simulated from the wallet.",
+    "inputSchema": {
+     "type": "object",
+     "properties": {
+      "wallet": {
+       "type": "string",
+       "description": "The wallet's address (0x...): the transactions are built for it to sign"
+      },
+      "token": {
+       "type": "string",
+       "description": "USDG or a market's symbol"
+      },
+      "amount": {
+       "type": "string",
+       "description": "A decimal amount, like \"100\""
+      },
+      "for": {
+       "type": "string",
+       "description": "Optional: the account to fund (0x...)"
+      }
+     },
+     "required": [
+      "wallet",
+      "token",
+      "amount"
+     ]
+    },
+    "annotations": {
+     "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
+     "openWorldHint": false
+    }
+   },
+   {
+    "name": "darkroom_withdraw",
+    "title": "Prepare: withdraw from Zero Dark",
+    "description": "An unsigned transaction to withdraw USDG or a stock from the wallet's own Zero Dark balance to the wallet. The owner's own call: session keys cannot withdraw. Inside a 30 second settlement window an account with orders in a book waits until the window ends. Every order in a book needs its market's smallest fill held in that stock or in USDG: withdraw below that and anyone can sweep the account's orders placed more than 10 minutes ago, the newest before the older ones, in the book the sweeper picks. Simulated from the wallet.",
+    "inputSchema": {
+     "type": "object",
+     "properties": {
+      "wallet": {
+       "type": "string",
+       "description": "The wallet's address (0x...): the transactions are built for it to sign"
+      },
+      "token": {
+       "type": "string",
+       "description": "USDG or a market's symbol"
+      },
+      "amount": {
+       "type": "string",
+       "description": "A decimal amount"
+      }
+     },
+     "required": [
+      "wallet",
+      "token",
+      "amount"
+     ]
+    },
+    "annotations": {
+     "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
+     "openWorldHint": false
+    }
+   },
+   {
+    "name": "darkroom_order",
+    "title": "Zero Dark: order kit, then the commit transaction",
+    "description": "Orders are sealed on the agent's own side, where it holds its key: this tool never takes an order's terms. Without receipt: the order kit (Zero Dark's address, the matcher's sealing key and receipt signer read from the chain, the market's lot size and caps, the next auction and the last auctions for IOC and DAY, the encoding and the Zero Dark kit's command; builder turns a Bookrunner code into the bytes32 an order carries). With receipt (the matcher's EIP-712 intake receipt the kit got from /darkroom/order) and wallet (the owner, or its session key): the receipt checked against the chain's matcherSigner, then the unsigned commit transaction, simulated from that wallet. Commit a receipt for an order you sealed yourself: a receipt binds a commitment, not terms you can see, so a receipt someone else hands you commits whatever order they sealed.",
+    "inputSchema": {
+     "type": "object",
+     "properties": {
+      "market": {
+       "type": "string",
+       "description": "A market: its symbol (SPY) or index (0)"
+      },
+      "builder": {
+       "type": "string",
+       "description": "Optional: a Bookrunner code to carry on the order"
+      },
+      "wallet": {
+       "type": "string",
+       "description": "With receipt: the address that sends the commit (the owner or its session key)"
+      },
+      "receipt": {
+       "type": "object",
+       "description": "The matcher's receipt: { owner, market, commitment, deadline, signature }"
+      }
+     }
+    },
+    "annotations": {
+     "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
+     "openWorldHint": false
+    }
+   },
+   {
+    "name": "darkroom_cancel",
+    "title": "Prepare: cancel a Zero Dark order",
+    "description": "An unsigned transaction to cancel an order by its commitment, from the owner or one of its session keys. It counts from the next batch (one already being proven keeps it). Simulated from the wallet.",
+    "inputSchema": {
+     "type": "object",
+     "properties": {
+      "wallet": {
+       "type": "string",
+       "description": "The wallet's address (0x...): the transactions are built for it to sign"
+      },
+      "commitment": {
+       "type": "string",
+       "description": "The order's commitment, 0x + 64 hex"
+      }
+     },
+     "required": [
+      "wallet",
+      "commitment"
+     ]
+    },
+    "annotations": {
+     "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
+     "openWorldHint": false
+    }
+   },
+   {
+    "name": "darkroom_orders",
+    "title": "Zero Dark: a wallet's orders",
+    "description": "A wallet's Zero Dark orders as the chain has them: commitment, market, the session key that committed it, when, filled lots and status (live, cancelled, filled, done). An order's terms are not on chain until any part of it fills, or a stale removal is tried on it (whether it succeeds or fails); then the whole opening is in that transaction. Until then the agent that placed an order keeps them.",
+    "inputSchema": {
+     "type": "object",
+     "properties": {
+      "wallet": {
+       "type": "string",
+       "description": "The wallet's address (0x...): the transactions are built for it to sign"
+      }
+     },
+     "required": [
+      "wallet"
+     ]
+    },
+    "annotations": {
+     "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
+     "openWorldHint": false
+    }
+   },
+   {
+    "name": "darkroom_fills",
+    "title": "Zero Dark: a wallet's fills",
+    "description": "A wallet's Zero Dark fills, all public on chain at settlement: market, batch, side, size, price, notional, fee, the Bookrunner's share and the transaction.",
+    "inputSchema": {
+     "type": "object",
+     "properties": {
+      "wallet": {
+       "type": "string",
+       "description": "The wallet's address (0x...): the transactions are built for it to sign"
+      }
+     },
+     "required": [
+      "wallet"
+     ]
+    },
+    "annotations": {
+     "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
+     "openWorldHint": false
+    }
+   },
+   {
+    "name": "darkroom_tape",
+    "title": "Zero Dark: the delayed tape and weekly stats",
+    "description": "Zero Dark's venue tape, 15 minutes behind, with sizes in buckets and no accounts, and weekly per-market volume two weeks after each week. Exact fills are on chain at settlement.",
+    "inputSchema": {
+     "type": "object",
+     "properties": {}
+    },
+    "annotations": {
+     "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
+     "openWorldHint": false
+    }
+   },
+   {
+    "name": "darkroom_session_register",
+    "title": "Prepare: register a Zero Dark session key",
+    "description": "Register a session key for an agent, with caps: USDG notional per order and per UTC day (counted at each batch's price), the markets it may trade (symbols, comma separated, or all) and an expiry. The key consents by signing: without key_sig this returns the EIP-712 typed data for the session key to sign (its expiry fixed); call again with key_sig and that expiry, or with the Zero Dark kit's whole registration, for the owner's unsigned transaction, simulated from the wallet. The key can commit and cancel within its caps; it can never withdraw or change keys.",
+    "inputSchema": {
+     "type": "object",
+     "properties": {
+      "wallet": {
+       "type": "string",
+       "description": "The wallet's address (0x...): the transactions are built for it to sign"
+      },
+      "key": {
+       "type": "string",
+       "description": "The session key's address (0x...)"
+      },
+      "max_order_usdg": {
+       "type": "string",
+       "description": "Most notional per order, USDG"
+      },
+      "max_day_usdg": {
+       "type": "string",
+       "description": "Most notional per UTC day, USDG"
+      },
+      "markets": {
+       "type": "string",
+       "description": "Comma separated symbols, or all"
+      },
+      "expiry_days": {
+       "type": "number",
+       "description": "Without key_sig: days until it expires (1 to 365, default 30)"
+      },
+      "expiry": {
+       "type": "number",
+       "description": "With key_sig: the expiry (unix seconds) the earlier call fixed and the key signed"
+      },
+      "key_sig": {
+       "type": "string",
+       "description": "The session key's signature over sign_this (0x + 130 hex)"
+      },
+      "registration": {
+       "type": "object",
+       "description": "Instead of the fields above: the registration the Zero Dark kit printed ({ darkroomAgent, owner, key, maxOrderUsdg, maxDayUsdg, markets, expiry, keySig })"
+      }
+     },
+     "required": [
+      "wallet"
+     ]
+    },
+    "annotations": {
+     "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
+     "openWorldHint": false
+    }
+   },
+   {
+    "name": "darkroom_session_revoke",
+    "title": "Prepare: revoke Zero Dark session keys (kill switch)",
+    "description": "Unsigned transactions for the owner's wallet to revoke one session key (agent_id) or every live one (all: true, the kill switch). Effective at once for commits and cancels; the keys' orders stop filling from the next batch. Simulated from the wallet.",
+    "inputSchema": {
+     "type": "object",
+     "properties": {
+      "wallet": {
+       "type": "string",
+       "description": "The wallet's address (0x...): the transactions are built for it to sign"
+      },
+      "agent_id": {
+       "type": "number",
+       "description": "The key's id"
+      },
+      "all": {
+       "type": "boolean",
+       "description": "true revokes every live key"
+      }
+     },
+     "required": [
+      "wallet"
+     ]
+    },
+    "annotations": {
+     "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
+     "openWorldHint": false
+    }
+   },
+   {
+    "name": "pay_with",
+    "title": "Prepare: fund a lend or a buy from another chain",
+    "description": "Unsigned transactions, on another EVM chain, that lend into Borro or buy a stock token on Robinhood Chain from what the wallet holds there: any token or the chain's own coin, on any of the chains Trustware routes from (70 and more). Trustware (trustware.io) finds the route and screens it; Borro checks the route is the one asked for (the wallet's own money, Borro's own vault, the amount, the fees) before it is returned. The route is good for about a minute: sign the approvals, then the transaction, on the source chain; the deposit lands on Robinhood Chain in the wallet's name. Then pay_with_status with the intentId. A chain or token the wallet does not hold is refused with what it holds instead.",
+    "inputSchema": {
+     "type": "object",
+     "properties": {
+      "wallet": {
+       "type": "string",
+       "description": "The wallet's address (0x...); the transactions are built for it to sign, on the source chain"
+      },
+      "chain": {
+       "type": "string",
+       "description": "The source chain: its id (\"8453\") or name (\"base\", \"ethereum\", \"arbitrum\", \"optimism\", \"polygon\", \"bnb\", \"avalanche\")"
+      },
+      "token": {
+       "type": "string",
+       "description": "What to pay with on that chain: a symbol as the wallet holds it (\"USDC\", \"ETH\", \"WETH\") or the token's address; the chain's own coin as \"ETH\" or \"native\""
+      },
+      "amount": {
+       "type": "string",
+       "description": "How much of it, in whole units as a decimal string, like \"25\" or \"0.01\"; \"all\" for the whole balance"
+      },
+      "goal": {
+       "type": "string",
+       "enum": [
+        "lend",
+        "buy"
+       ],
+       "description": "lend (default): into Borro's vault for the asset; buy: the stock token sent to the wallet"
+      },
+      "asset": {
+       "type": "string",
+       "description": "USDG (the default, for a lend) or a stock on Borro by its ticker, like NVDA"
+      }
+     },
+     "required": [
+      "wallet",
+      "chain",
+      "token",
+      "amount"
+     ]
+    },
+    "annotations": {
+     "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
+     "openWorldHint": true
+    }
+   },
+   {
+    "name": "pay_with_status",
+    "title": "Where a Pay with route got to",
+    "description": "The status of a route pay_with prepared, by its intentId, once its transaction was sent: pending, done (what arrived on Robinhood Chain) or failed, as Trustware reports it.",
+    "inputSchema": {
+     "type": "object",
+     "properties": {
+      "intentId": {
+       "type": "string",
+       "description": "The intentId pay_with returned"
+      }
+     },
+     "required": [
+      "intentId"
+     ]
+    },
+    "annotations": {
+     "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
+     "openWorldHint": true
+    }
+   },
+   {
+    "name": "policy",
+    "title": "Policy credit: a policy's record, or a wallet's claim",
+    "description": "Policy credit: an agent's borrowing terms follow the record of the code it runs (its policy: the content hash of code, model and prompt), across every wallet that claims it. Pass policy (a hash) for its ledger entry, or wallet for its claim and that policy's entry: the tier (newborn, proven or established, from the lines, repayments, liquidations and bad debt of every wallet that claims it), the earned default daily limit by rung, and the honest limits of each rung. Rung 0: a signature from the wallet (\"I run policy H\"), checked by nobody, defaults up to 250 USDG a day. Rung 1: a hardware attestation (a dstack TEE quote) that the wallet's key lives in an enclave running image H, verified off chain by Borro's keeper, which attests on chain; the raw quote is public, so anyone can re-verify; up to 500. Rung 2: a zk proof per action (SP1) that the action is what program H outputs on committed inputs, checked by the SP1 verifier contract at the registry; up to 1,000. Honest limits: rung 0 proves nothing (a lying wallet poisons the policy it claimed, and the policy's owner can disown it); rung 1 trusts the chip maker and the enclave operator, and Borro's keeper is the on-chain attester (the quote itself is published, so the keeper cannot invent one); rung 2 serves policies that are pure functions over Borro's public inputs, which no LLM-driven agent is; nothing proves which weights a closed model used. Reads Borro's ledger (https://borro.markets/policies.json), then the registry on chain.",
+    "inputSchema": {
+     "type": "object",
+     "properties": {
+      "policy": {
+       "type": "string",
+       "description": "The policy's hash (bytes32: 0x and 64 hex characters), keccak256 of its manifest"
+      },
+      "wallet": {
+       "type": "string",
+       "description": "Or a wallet (0x...), for its claim and the policy's record"
+      }
+     }
+    },
+    "annotations": {
+     "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
+     "openWorldHint": false
+    }
+   },
+   {
+    "name": "policy_register",
+    "title": "Prepare: register a policy",
+    "description": "An unsigned transaction to register a policy in the PolicyRegistry from its owner's wallet: manifest_hash (keccak256 of the manifest's bytes at uri), the manifest's https uri, and the model, prompt, image (the enclave's compose hash, for rung 1) and verification-key (SP1, for rung 2) hashes lenders read without the manifest; the zero hash for an image or vkey the policy has none of. The policy's id is keccak256(abi.encode(owner, manifest_hash)), returned here before the transaction is sent. The owner can later update the uri, transfer the policy, disown a wallet that claims it without running it, and pardon one it disowned. The registry holds no money. Rung 0: a signature from the wallet (\"I run policy H\"), checked by nobody, defaults up to 250 USDG a day. Rung 1: a hardware attestation (a dstack TEE quote) that the wallet's key lives in an enclave running image H, verified off chain by Borro's keeper, which attests on chain; the raw quote is public, so anyone can re-verify; up to 500. Rung 2: a zk proof per action (SP1) that the action is what program H outputs on committed inputs, checked by the SP1 verifier contract at the registry; up to 1,000. Simulated from the wallet; nothing is sent.",
+    "inputSchema": {
+     "type": "object",
+     "properties": {
+      "wallet": {
+       "type": "string",
+       "description": "The wallet's address (0x...); the transactions are built for it to sign"
+      },
+      "manifest_hash": {
+       "type": "string",
+       "description": "bytes32: keccak256 of the manifest's bytes at uri"
+      },
+      "uri": {
+       "type": "string",
+       "description": "The manifest's https URL"
+      },
+      "model_hash": {
+       "type": "string",
+       "description": "bytes32: the model's hash or id hash"
+      },
+      "prompt_hash": {
+       "type": "string",
+       "description": "bytes32: the prompt's hash"
+      },
+      "image_hash": {
+       "type": "string",
+       "description": "bytes32: the enclave's compose hash, for rung 1 (optional; the zero hash without one)"
+      },
+      "vkey": {
+       "type": "string",
+       "description": "bytes32: the SP1 program's verification key, for rung 2 (optional; the zero hash without one)"
+      }
+     },
+     "required": [
+      "wallet",
+      "manifest_hash",
+      "uri",
+      "model_hash",
+      "prompt_hash"
+     ]
+    },
+    "annotations": {
+     "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
+     "openWorldHint": false
+    }
+   },
+   {
+    "name": "policy_claim",
+    "title": "Prepare: claim a policy from the agent wallet (rung 0)",
+    "description": "An unsigned transaction for an agent wallet to claim the policy it runs (rung 0: the signature is the evidence; a wallet has at most one claim, and claiming again replaces it). Once claimed, the wallet's credit lines open with the policy's earned default daily limit for its rung when they have a gas station or bill pay, and its record feeds the policy's. The answer's next_steps say how to reach rung 1 (PUT /policies/quote with JSON { wallet (0x address), quote (hex: the raw TDX quote), event_log (the dstack event log, an array or its JSON text), key_chain (an object: the dstack KMS key chain binding the wallet's key to the app), signature (hex: an EIP-191 signature by wallet over the bytes \"borro-policy-quote\" ++ keccak256(quote)) }, at most 256 KB, no key; Borro's keeper verifies it and attests on chain) and rung 2 (SP1 proofs per action through policy_prove). Rung 0: a signature from the wallet (\"I run policy H\"), checked by nobody, defaults up to 250 USDG a day. Rung 1: a hardware attestation (a dstack TEE quote) that the wallet's key lives in an enclave running image H, verified off chain by Borro's keeper, which attests on chain; the raw quote is public, so anyone can re-verify; up to 500. Rung 2: a zk proof per action (SP1) that the action is what program H outputs on committed inputs, checked by the SP1 verifier contract at the registry; up to 1,000. Honest limits: rung 0 proves nothing (a lying wallet poisons the policy it claimed, and the policy's owner can disown it); rung 1 trusts the chip maker and the enclave operator, and Borro's keeper is the on-chain attester (the quote itself is published, so the keeper cannot invent one); rung 2 serves policies that are pure functions over Borro's public inputs, which no LLM-driven agent is; nothing proves which weights a closed model used. Simulated from the wallet; nothing is sent.",
+    "inputSchema": {
+     "type": "object",
+     "properties": {
+      "wallet": {
+       "type": "string",
+       "description": "The wallet's address (0x...); the transactions are built for it to sign"
+      },
+      "policy": {
+       "type": "string",
+       "description": "The policy's hash (bytes32: 0x and 64 hex characters), keccak256 of its manifest"
+      }
+     },
+     "required": [
+      "wallet",
+      "policy"
+     ]
+    },
+    "annotations": {
+     "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
+     "openWorldHint": false
+    }
+   },
+   {
+    "name": "policy_prove",
+    "title": "Prepare: submit an SP1 proof for a policy (rung 2)",
+    "description": "An unsigned transaction that submits a zk proof (SP1) that a wallet's action is what its policy outputs on committed inputs: prove(policy, publicValues, proof), with the bytes the SP1 guest and prover produced (zk/policy-runner). publicValues is 128 bytes, ABI-encoded (address wallet, bytes32 inputsHash, bytes32 actionHash, uint64 at); the wallet in it must have claimed the policy. Anyone may send it (the agent, its owner, a relayer); the registry checks the proof through the SP1 verifier with the policy's vkey and sets the wallet's rung to 2. Rung 0: a signature from the wallet (\"I run policy H\"), checked by nobody, defaults up to 250 USDG a day. Rung 1: a hardware attestation (a dstack TEE quote) that the wallet's key lives in an enclave running image H, verified off chain by Borro's keeper, which attests on chain; the raw quote is public, so anyone can re-verify; up to 500. Rung 2: a zk proof per action (SP1) that the action is what program H outputs on committed inputs, checked by the SP1 verifier contract at the registry; up to 1,000. rung 2 serves policies that are pure functions over Borro's public inputs, which no LLM-driven agent is; nothing proves which weights a closed model used. Simulated from the wallet; nothing is sent.",
+    "inputSchema": {
+     "type": "object",
+     "properties": {
+      "wallet": {
+       "type": "string",
+       "description": "The wallet's address (0x...); the transactions are built for it to sign"
+      },
+      "policy": {
+       "type": "string",
+       "description": "The policy's hash (bytes32: 0x and 64 hex characters), keccak256 of its manifest"
+      },
+      "public_values": {
+       "type": "string",
+       "description": "The proof's public values, 128 bytes of hex"
+      },
+      "proof": {
+       "type": "string",
+       "description": "The SP1 proof bytes, hex"
+      }
+     },
+     "required": [
+      "wallet",
+      "policy",
+      "public_values",
+      "proof"
+     ]
+    },
+    "annotations": {
+     "readOnlyHint": true,
+     "destructiveHint": false,
+     "idempotentHint": true,
+     "openWorldHint": false
+    }
+   }
+  ]
+ }
+}

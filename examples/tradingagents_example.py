@@ -4,6 +4,8 @@
     python examples/tradingagents_example.py NVDA --decision Buy          skip the model: act on a decision you give
     BORRO_LIVE=1 python examples/tradingagents_example.py NVDA --decision Buy --live
 
+A Buy is a plain spot order: USDG buys the stock token into the wallet, and a Sell swaps it back to USDG.
+
 Environment: BORRO_AGENT_KEY (the agent's own key), BORRO_RPC_URL (your Robinhood Chain RPC), and BORRO_LIVE=1 with
 --live to send. Running the model also needs TradingAgents installed and its own model key.
 """
@@ -19,7 +21,7 @@ ap.add_argument("ticker")
 ap.add_argument("date", nargs="?", default="2026-09-01")
 ap.add_argument("--decision", help="Buy, Overweight, Hold, Underweight or Sell: act on this instead of running the model")
 ap.add_argument("--usdg", type=float, default=5.0, help="the size of a Buy, in USDG")
-ap.add_argument("--allow-short", action="store_true", help="let a Sell with no long open a short")
+ap.add_argument("--allow-short", action="store_true", help="let a Sell with none of the stock held open a short")
 ap.add_argument("--live", action="store_true")
 a = ap.parse_args()
 
